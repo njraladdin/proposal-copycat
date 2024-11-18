@@ -88,6 +88,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     // Check auth status
     await checkUpworkAuth();
+    
+    // Add event listener for history limit changes
+    const historyLimitSelect = document.getElementById('historyLimit');
+    historyLimitSelect.addEventListener('change', (event) => {
+        console.log('History limit changed to:', event.target.value); // For debugging
+    });
 });
 
 // Start scraping button
@@ -166,7 +172,7 @@ document.getElementById('cancelPrompt').addEventListener('click', () => {
     document.getElementById('promptModal').style.display = 'none';
 });
 
-// Update the copyData event listener to include job post content
+// Update the copyData event listener
 document.getElementById('copyData').addEventListener('click', async () => {
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
     const currentUrl = tabs[0].url;
@@ -180,9 +186,9 @@ document.getElementById('copyData').addEventListener('click', async () => {
     const [jobPostResult] = await chrome.scripting.executeScript({
         target: { tabId: tabs[0].id },
         function: () => {
-            // Try to click "Show More" button if it exists
+            // Try to click "Show More" button if it exists and has text "more"
             const showMoreButton = document.querySelector('#main > div.container > div:nth-child(4) > div > div > div:nth-child(3) > div.fe-job-details > div > section > div:nth-child(1) > div.content.span-md-8.span-lg-9 > div > div > span > span:nth-child(2) > button');
-            if (showMoreButton) {
+            if (showMoreButton && showMoreButton.querySelector('span')?.textContent.trim().toLowerCase() === 'more') {
                 showMoreButton.click();
                 // Give it a moment to expand
                 return new Promise(resolve => {
@@ -192,7 +198,7 @@ document.getElementById('copyData').addEventListener('click', async () => {
                     }, 500);
                 });
             } else {
-                // If no show more button, try to get content directly
+                // If no show more button or button text isn't "more", get content directly
                 const jobPostElement = document.querySelector('#air3-truncation-1');
                 return jobPostElement ? jobPostElement.textContent.trim() : '';
             }
@@ -201,25 +207,28 @@ document.getElementById('copyData').addEventListener('click', async () => {
     
     const jobPostContent = jobPostResult.result;
     
-    const data = await chrome.storage.local.get(['proposals', 'portfolio', 'prompt']);
+    // Show the modal
+    const modal = document.getElementById('generateModal');
+    const outputArea = document.getElementById('generateOutput');
+    modal.style.display = 'block';
     
-    // Check if proposals exist
-    if (!data.proposals || data.proposals.length === 0) {
-        showTooltip(document.getElementById('copyData'), 'Please scrape some Upwork proposals first!');
-        return;
-    }
-
-    // Rest of the existing generate logic
-    const historyLimit = document.getElementById('historyLimit').value;
-    let output = '';
-    
-    // Add proposals and job posts with limit
-    if (data.proposals) {
-        const limitedProposals = historyLimit === 'all' 
-            ? data.proposals 
-            : data.proposals.slice(-parseInt(historyLimit));
-            
-        limitedProposals.forEach(proposal => {
+    // Function to generate output text
+    const generateOutputText = async () => {
+        const data = await chrome.storage.local.get(['proposals', 'portfolio', 'prompt']);
+        const historyLimit = document.getElementById('historyLimit').value;
+        
+        let proposalsToInclude = [...data.proposals];
+        
+        // Apply the history limit if not set to 'all'
+        if (historyLimit !== 'all') {
+            const limit = parseInt(historyLimit);
+            proposalsToInclude = proposalsToInclude.slice(-limit);
+        }
+        
+        let output = '';
+        
+        // Add proposals and job posts with limit
+        proposalsToInclude.forEach((proposal) => {
             output += '<job_post>\n';
             output += proposal.description || 'No job description available';
             output += '\n</job_post>\n';
@@ -227,43 +236,54 @@ document.getElementById('copyData').addEventListener('click', async () => {
             output += 'Cover letter: ' + (proposal.coverLetter || 'No cover letter available');
             output += '\n</proposal>\n';
         });
-    }
+        
+        // Add portfolio
+        if (data.portfolio) {
+            output += '\n<portfolio>\n';
+            output += '# Portfolio Project Descriptions\n\n';
+            data.portfolio.forEach((item, index) => {
+                output += `${index + 1}. ${item}\n`;
+            });
+            output += '\n</portfolio>\n';
+        }
+        
+        // Add the custom prompt
+        output += '\n' + (data.prompt || defaultPrompt);
+        
+        // Add the current job post at the bottom
+        output += '\n\n<current_job_post>\n';
+        output += jobPostContent || 'Error: Could not fetch job post content';
+        output += '\n</current_job_post>';
+        
+        return output;
+    };
     
-    // Add portfolio
-    if (data.portfolio) {
-        output += '\n<portfolio>\n';
-        output += '# Portfolio Project Descriptions\n\n';
-        data.portfolio.forEach((item, index) => {
-            output += `${index + 1}. ${item}\n`;
-        });
-        output += '\n</portfolio>\n';
-    }
-    
-    // Add the custom prompt
-    output += '\n' + (data.prompt || defaultPrompt);
-    
-    // Add the current job post at the bottom
-    output += '\n\n<current_job_post>\n';
-    output += jobPostContent || 'Error: Could not fetch job post content';
-    output += '\n</current_job_post>';
-
-    // Show the modal and set the formatted text
-    const modal = document.getElementById('generateModal');
-    const outputArea = document.getElementById('generateOutput');
+    // Generate initial output
+    const output = await generateOutputText();
+    outputArea.value = output;
     
     // Create a wrapper div for the formatted content
     const formattedWrapper = document.createElement('div');
     formattedWrapper.className = 'formatted-output';
     formattedWrapper.innerHTML = formatPromptText(output);
     
-    // Replace the textarea with our formatted div
+    // Replace any existing formatted output
+    const existingFormatted = modal.querySelector('.formatted-output');
+    if (existingFormatted) {
+        existingFormatted.remove();
+    }
+    
+    // Add the new formatted output
     outputArea.style.display = 'none';
     outputArea.parentNode.insertBefore(formattedWrapper, outputArea);
     
-    // Keep the original text in the textarea for copying
-    outputArea.value = output;
-    
-    modal.style.display = 'block';
+    // Add event listener for history limit changes
+    const historyLimitSelect = document.getElementById('historyLimit');
+    historyLimitSelect.addEventListener('change', async () => {
+        const newOutput = await generateOutputText();
+        outputArea.value = newOutput;
+        formattedWrapper.innerHTML = formatPromptText(newOutput);
+    });
 });
 
 // Update the updateStepStates function to handle the new step
