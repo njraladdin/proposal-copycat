@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Proposal Copycat - AI Trained on Your Upwork Proposals",
+  "version": "1.0",
+  "description": "Train AI to write proposals in your style by analyzing your successful Upwork proposals.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "tabs",
+    "storage",
+    "cookies"
+  ],
+  "host_permissions": [
+    "https://www.upwork.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+} 

@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+/* Updated General Styles */
+
+body {
+  width: 750px;
+  height: 600px;
+  padding: 24px;
+  margin: 0;
+  box-sizing: border-box;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  background: #fafafa;
+  overflow-y: auto;
+  color: #1a1f36;
+}
+
+.controls {
+  margin-bottom: 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: white;
+  padding: 16px;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+button {
+  padding: 10px 20px;
+  cursor: pointer;
+  background: #635bff;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  white-space: nowrap;
+}
+
+button:hover {
+  background: #5851e9;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(99,91,255,0.15);
+}
+
+.clear-btn {
+  background: transparent;
+  color: #6c757d;
+  padding: 4px 8px;
+  box-shadow: none;
+  font-weight: 500;
+  transition: color 0.15s ease;
+  font-size: 12px;
+}
+
+.clear-btn:hover {
+  background: transparent;
+  color: #dc3545;
+  transform: none;
+  box-shadow: none;
+}
+
+.proposals-container {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 2px 5px rgba(26,31,54,0.05);
+  overflow: hidden;
+  border: 1px solid #e6e8eb;
+  overflow-x: hidden;
+  width: 100%;
+}
+
+.proposals-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.proposals-table th,
+.proposals-table td {
+  padding: 12px;
+  font-size: 13px;
+  border-bottom: 1px solid #f0f0f0;
+  line-height: 1.5;
+  vertical-align: top;
+}
+
+.proposals-table th {
+  background-color: #f7fafc;
+  font-weight: 600;
+  color: #1a1f36;
+  padding: 16px;
+  font-size: 13px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.proposals-table tr:hover {
+  background-color: #f8f9fa;
+}
+
+.description-cell, .title-cell {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre-wrap;
+  color: #666;
+  max-height: 100px;
+  overflow-y: auto;
+  font-size: 13px;
+}
+
+.title-cell {
+  font-weight: 500;
+  color: #444;
+}
+
+.status-badge {
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+}
+
+.status-hired {
+  background: rgba(20, 168, 0, 0.1);
+  color: #14a800;
+}
+
+.status-withdrawn {
+  background: rgba(108, 117, 125, 0.1);
+  color: #6c757d;
+}
+
+.status-ready {
+  background: rgba(99,91,255,0.1);
+  color: #635bff;
+}
+
+.status-inactive {
+  background: rgba(108, 117, 125, 0.1);
+  color: #6c757d;
+      opacity: 0.5; /* Makes the status pill semi-transparent */
+    transition: opacity 0.3s ease; /* Optional: Adds a transition effect */
+
+}
+
+.status-completed {
+  background: rgba(37,184,100,0.1);
+  color: #25b864;
+}
+
+.empty-state {
+  padding: 48px 24px;
+  text-align: center;
+  color: #666;
+  font-size: 15px;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #999;
+}
+
+/* Updated Stepper Styles */
+.stepper {
+  display: flex;
+  margin-bottom: 48px;
+  justify-content: space-between;
+  position: relative;
+  padding: 0 20px;
+  gap: 16px;
+}
+
+.stepper::before {
+  content: '';
+  position: absolute;
+  top: 24px;
+  left: 80px;
+  right: 80px;
+  height: 2px;
+  background: #e6e8eb;
+  z-index: 1;
+}
+
+.step {
+  text-align: center;
+  position: relative;
+  z-index: 2;
+  background: transparent;
+  padding: 0 8px;
+  flex: 1;
+  max-width: 180px;
+  height: 180px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.step-number {
+  width: 32px;
+  height: 32px;
+  border: 2px solid #e6e8eb;
+  background: white;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 12px;
+  transition: all 0.3s ease;
+}
+
+.ready-number {
+  background: #fd7e14 !important;
+  color: white !important;
+  border-color: #fd7e14 !important;
+}
+
+.status-ready {
+  color: #fd7e14;
+  font-weight: bold;
+}
+
+.step.ready .step-title {
+  color: #fd7e14 !important;
+}
+
+.step-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1a1f36;
+  margin: 8px 0 4px;
+}
+
+.step-description {
+  font-size: 13px;
+  color: #697386;
+  line-height: 1.4;
+  margin-bottom: 12px;
+  padding: 0 4px;
+  min-height: 36px;
+}
+
+.step-action button {
+  opacity: 1;
+  padding: 8px 16px;
+  font-size: 13px;
+}
+
+/* Ready Step */
+.step.ready {
+  opacity: 1;
+}
+
+.step.ready .step-number {
+  background: white;
+  border-color: #14a800;
+  color: #14a800;
+}
+
+.step.ready .step-title {
+  color: #14a800;
+}
+
+/* Completed Step */
+.step.completed {
+  opacity: 1;
+}
+
+.step.completed .step-number {
+  background: #14a800;
+  border-color: #14a800;
+  color: white;
+}
+
+.step.completed .step-title {
+  color: #14a800;
+}
+
+/* Active Step */
+.step.active {
+  opacity: 1;
+}
+
+.step-status {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 12px;
+  display: inline-block;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Data Preview Styles */
+.data-preview {
+  margin-top: 24px;
+}
+
+.data-preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding: 0 8px;
+}
+
+.data-preview-title {
+  font-weight: 600;
+  color: #444;
+}
+
+.data-preview-title span {
+  color: #14a800;
+  font-weight: 600;
+}
+
+.embedded-cell {
+  text-align: center;
+}
+
+/* Modal Styles */
+.modal {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+}
+
+.modal-content {
+  position: relative;
+  background: white;
+  width: 90%;
+  max-width: 600px;
+  margin: 32px auto;
+  padding: 28px;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.modal h2 {
+  font-size: 22px;
+  font-weight: 600;
+  color: #1a1f36;
+  margin-bottom: 12px;
+}
+
+.modal-description {
+  color: #697386;
+  line-height: 1.6;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+
+#portfolioInput,
+#promptInput,
+#generateOutput {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.save-btn {
+  background: #14a800;
+}
+
+.cancel-btn {
+  background: #6c757d;
+}
+
+/* Ensure All Step Buttons Are Fully Visible */
+.step.inactive button {
+  opacity: 1;
+}
+
+#step3.ready .step-title {
+  color: #fd7e14 !important;
+}
+
+/* Add these new styles */
+#copyData {
+  background: #e0e0e0; /* Grey background when disabled */
+  opacity: 0.6;
+  cursor: not-allowed;
+  pointer-events: none;
+  color: #666; /* Darker text color for better contrast */
+}
+
+#copyData.ready {
+  background: #fd7e14; /* Orange background when ready */
+  opacity: 1;
+  cursor: pointer;
+  pointer-events: auto;
+  color: white;
+}
+
+#copyData.ready:hover {
+  background: #fd7e14dd;
+  box-shadow: 0 2px 4px rgba(253, 126, 20, 0.2);
+}
+
+#copyGenerated {
+    min-width: 150px;
+    background: #fd7e14;
+}
+
+#copyGenerated:hover {
+    background: #fd7e14dd;
+    box-shadow: 0 2px 4px rgba(253, 126, 20, 0.2);
+}
+
+.modal-description {
+    line-height: 1.5;
+    margin-bottom: 20px;
+}
+
+.modal-settings {
+  background: #f7fafc;
+  border-radius: 8px;
+  padding: 12px;
+  margin: 16px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.settings-label {
+  font-weight: 600;
+  color: #444;
+}
+
+.settings-select {
+  padding: 8px 12px;
+  border: 1px solid #e6e8eb;
+  border-radius: 6px;
+  font-size: 14px;
+  color: #1a1f36;
+  background: white;
+}
+
+#generateOutput {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  height: 200px;
+  padding: 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  margin-bottom: 16px;
+  font-family: inherit;
+  resize: vertical;
+}
+
+/* Hero Section Styles */
+.hero {
+  margin-bottom: 32px;
+  text-align: center;
+  padding: 0 16px;
+}
+
+.hero h1 {
+  font-size: 28px;
+  font-weight: 600;
+  color: #1a1f36;
+  margin: 0 0 12px 0;
+}
+
+.hero-description {
+  font-size: 15px;
+  color: #697386;
+  line-height: 1.6;
+}
+
+.link-cell {
+    text-align: center;
+}
+
+.job-link {
+    color: #635bff;
+    text-decoration: none;
+    display: inline-flex;
+    padding: 6px;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+}
+
+.job-link:hover {
+    background: rgba(99,91,255,0.1);
+    transform: translateY(-1px);
+}
+
+.job-link svg {
+    transition: all 0.2s ease;
+}
+
+.job-link:hover svg {
+    stroke: #4f48c4;
+}
+
+.proposals-table th:last-child,
+.proposals-table td:last-child {
+    width: 48px;
+    padding: 12px 8px;
+}
+  </style>
+</head>
+<body>
+  <div class="hero">
+    <h1>Proposal Assistant</h1>
+    <p class="hero-description">Train AI to write proposals in your style by analyzing your successful Upwork history. Follow the steps below to get started.</p>
+  </div>
+
+  <div id="portfolioModal" class="modal">
+    <div class="modal-content">
+      <h2>Add Your Portfolio</h2>
+      <p class="modal-description">Enter your portfolio items (one per line) in the format:<br>
+      Project URL - Brief description</p>
+      <textarea id="portfolioInput" placeholder="https://example.com - My awesome project&#10;https://github.com/user/project - Cool app I built"></textarea>
+      <div class="modal-actions">
+        <button id="savePortfolio" class="save-btn">Save Portfolio</button>
+        <button id="cancelPortfolio" class="cancel-btn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="stepper">
+    <div class="step" id="step1">
+      <div class="step-number">1</div>
+      <div class="step-status status-not-started">Not Started</div>
+      <div class="step-title">Scrape Proposals</div>
+      <div class="step-description">Collect your proposal history from Upwork</div>
+      <div class="step-action">
+        <button id="startScraping">Start Scraping</button>
+      </div>
+    </div>
+    
+    <div class="step" id="step2">
+      <div class="step-number">2</div>
+      <div class="step-status status-not-started">Not Started</div>
+      <div class="step-title">Add Portfolio</div>
+      <div class="step-description">Add your portfolio projects</div>
+      <div class="step-action">
+        <button id="startPortfolio">Add Portfolio</button>
+      </div>
+    </div>
+    
+    <div class="step" id="step3">
+      <div class="step-number">3</div>
+      <div class="step-status status-not-started">Not Started</div>
+      <div class="step-title">Edit Prompt</div>
+      <div class="step-description">Customize the AI prompt</div>
+      <div class="step-action">
+        <button id="editPrompt">Edit Prompt</button>
+      </div>
+    </div>
+
+    <div class="step" id="step4">
+      <div class="step-number">4</div>
+      <div class="step-status status-not-started">Not Started</div>
+      <div class="step-title">Generate a Proposal</div>
+      <div class="step-description">Visit any job post to generate proposal</div>
+      <div class="step-action">
+        <button id="copyData">Copy Data</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="data-preview">
+    <div class="data-preview-header">
+      <div class="data-preview-title">
+        Scraped Proposals (<span id="proposalCount">0</span>)
+      </div>
+      <button id="clearData" class="clear-btn">
+        <span>×</span>
+        Clear Data
+      </button>
+    </div>
+    <div class="proposals-container">
+      <div id="proposalsTable"></div>
+    </div>
+  </div>
+
+  <div id="promptModal" class="modal">
+    <div class="modal-content">
+      <h2>Edit AI Prompt</h2>
+      <p class="modal-description">
+        The default prompt is already optimized for high-quality proposals. 
+        Click "Save" to keep it, or customize if needed.<br><br>
+      </p>
+      <textarea id="promptInput" style="width: 100%; height: 300px; padding: 12px; border: 1px solid #ddd; border-radius: 6px; margin-bottom: 16px; font-family: inherit; resize: vertical;"></textarea>
+      <div class="modal-actions">
+        <button id="savePrompt" class="save-btn">Save Prompt</button>
+        <button id="cancelPrompt" class="cancel-btn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="generateModal" class="modal">
+    <div class="modal-content">
+      <h2>Generate AI Proposal</h2>
+      <div class="modal-settings">
+        <label for="historyLimit" class="settings-label">Include proposals from:</label>
+        <select id="historyLimit" class="settings-select">
+          <option value="all">All Time</option>
+          <option value="5" selected>Last 5 Proposals</option>
+          <option value="10">Last 10 Proposals</option>
+          <option value="20">Last 20 Proposals</option>
+          <option value="50">Last 50 Proposals</option>
+          <option value="75">Last 75 Proposals</option>
+        </select>
+      </div>
+      <p class="modal-description">Copy this text and paste it into ChatGPT / Claude to generate a proposal that matches your writing style:</p>
+      <textarea id="generateOutput" readonly></textarea>
+      <div class="modal-actions">
+        <button id="copyGenerated" class="save-btn">Copy to Clipboard</button>
+        <button id="closeGenerate" class="cancel-btn">Close</button>
+      </div>
+      <p class="modal-description" style="margin-top: 16px; font-style: italic; color: #666;">
+        Next step: Open ChatGPT or Claude and paste the copied text to generate your proposal.
+      </p>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html> 
