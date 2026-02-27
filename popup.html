@@ -175,6 +175,12 @@
       background: #f8f9fa;
     }
 
+    .toolbar-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
     .raw-json {
       width: 100%;
       min-height: 390px;
@@ -235,7 +241,10 @@
     <p class="subtle-note">Fields: title, status, submitted at, scraped at, job description, cover letter, proposal URL.</p>
     <div class="raw-json-toolbar">
       <span>Exact stored payload</span>
-      <button id="copyRawJson" class="copy-json-btn">Copy JSON</button>
+      <div class="toolbar-actions">
+        <button id="downloadRawJson" class="copy-json-btn">Download JSON</button>
+        <button id="copyRawJson" class="copy-json-btn">Copy JSON</button>
+      </div>
     </div>
     <textarea id="rawJsonOutput" class="raw-json" readonly></textarea>
   </div>

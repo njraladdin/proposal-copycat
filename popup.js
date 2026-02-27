@@ -70,6 +70,13 @@ function renderRawJson(proposals) {
     document.getElementById('rawJsonOutput').value = JSON.stringify(items, null, 2);
 }
 
+function buildExportFilename() {
+    const now = new Date();
+    const pad = (value) => String(value).padStart(2, '0');
+    const timestamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+    return `proposals-${timestamp}.json`;
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
     const data = await chrome.storage.local.get(['proposals', 'scrapeMode']);
     renderRawJson(data.proposals);
@@ -111,6 +118,35 @@ document.getElementById('copyRawJson').addEventListener('click', async () => {
     setTimeout(() => {
         copyBtn.textContent = originalText;
     }, 1200);
+});
+
+document.getElementById('downloadRawJson').addEventListener('click', async () => {
+    const downloadBtn = document.getElementById('downloadRawJson');
+    const originalText = downloadBtn.textContent;
+
+    try {
+        const data = await chrome.storage.local.get('proposals');
+        const proposals = Array.isArray(data.proposals) ? data.proposals : [];
+
+        const blob = new Blob([JSON.stringify(proposals, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = buildExportFilename();
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1500);
+
+        downloadBtn.textContent = 'Downloaded';
+    } catch (error) {
+        console.error('Failed to export proposals:', error);
+        downloadBtn.textContent = 'Failed';
+    }
+
+    setTimeout(() => {
+        downloadBtn.textContent = originalText;
+    }, 1400);
 });
 
 chrome.storage.onChanged.addListener((changes, namespace) => {

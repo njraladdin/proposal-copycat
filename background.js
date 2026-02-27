@@ -88,7 +88,12 @@ async function scrapeProposals(options = {}) {
     const existingProposals = storageData.proposals || [];
     const existingUrls = new Set(
         existingProposals
-            .map((proposal) => proposal?.proposal?.proposalUrl || proposal?.href)
+            .map((proposal) => (
+                proposal?.proposalDetailsPage?.data?.proposal?.proposalUrl ||
+                proposal?.proposal?.proposalUrl ||
+                proposal?.proposalListPage?.href ||
+                proposal?.href
+            ))
             .filter(Boolean)
     );
     
@@ -127,6 +132,81 @@ async function scrapeProposals(options = {}) {
         itemCurrent: 0,
         itemTotal: 0
     };
+    const errorState = {
+        total: 0,
+        byType: {},
+        recent: []
+    };
+    const runMetrics = {
+        startedAtMs: Date.now(),
+        processedItems: 0,
+        completedPages: 0,
+        observedItemsInPages: 0
+    };
+    const MAX_RECENT_ERRORS = 5;
+
+    const escapeHtml = (value) => String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    const parsePositiveInteger = (value) => {
+        const parsed = Number.parseInt(String(value || ''), 10);
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    };
+    const formatDurationShort = (milliseconds) => {
+        if (!Number.isFinite(milliseconds) || milliseconds <= 0) {
+            return '<1m';
+        }
+
+        const totalSeconds = Math.max(1, Math.round(milliseconds / 1000));
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+
+        if (hours > 0) {
+            return `${hours}h ${minutes}m`;
+        }
+        if (minutes > 0) {
+            return `${minutes}m`;
+        }
+        return `${seconds}s`;
+    };
+    const estimateRemainingMs = () => {
+        const elapsedMs = Date.now() - runMetrics.startedAtMs;
+        if (runMetrics.processedItems < 3 || elapsedMs < 10000) {
+            return null;
+        }
+
+        const currentPage = parsePositiveInteger(progressState.listCurrent);
+        const totalPages = parsePositiveInteger(progressState.listTotal);
+        const currentItem = Number.isFinite(progressState.itemCurrent) ? progressState.itemCurrent : 0;
+        const totalItemsOnPage = Number.isFinite(progressState.itemTotal) ? progressState.itemTotal : 0;
+
+        let remainingItems = Math.max(totalItemsOnPage - currentItem, 0);
+        if (currentPage && totalPages && totalPages >= currentPage) {
+            const pagesRemaining = totalPages - currentPage;
+            const averageItemsPerPage = runMetrics.completedPages > 0
+                ? (runMetrics.observedItemsInPages / runMetrics.completedPages)
+                : (totalItemsOnPage > 0 ? totalItemsOnPage : 0);
+
+            if (pagesRemaining > 0 && averageItemsPerPage > 0) {
+                remainingItems += pagesRemaining * averageItemsPerPage;
+            }
+        }
+
+        if (remainingItems <= 0) {
+            return 0;
+        }
+
+        const avgMsPerItem = elapsedMs / runMetrics.processedItems;
+        if (!Number.isFinite(avgMsPerItem) || avgMsPerItem <= 0) {
+            return null;
+        }
+
+        return remainingItems * avgMsPerItem;
+    };
 
     const updateStatus = (updates = {}) => {
         Object.assign(progressState, updates);
@@ -142,6 +222,26 @@ async function scrapeProposals(options = {}) {
         const pageProgressText = progressState.itemTotal > 0
             ? `${progressState.itemCurrent}/${progressState.itemTotal}`
             : 'None on this page';
+        const etaRemainingMs = estimateRemainingMs();
+        const etaText = etaRemainingMs === null
+            ? 'Calculating...'
+            : formatDurationShort(etaRemainingMs);
+        const sortedErrorEntries = Object.entries(errorState.byType)
+            .sort((a, b) => b[1] - a[1]);
+        const errorTypeSummary = sortedErrorEntries
+            .slice(0, 3)
+            .map(([type, count]) => `${type}: ${count}`)
+            .join(', ');
+        const recentErrorRows = errorState.recent
+            .slice(0, 3)
+            .map((entry) => `
+                <div style="font-size: 11px; color: #495057; line-height: 1.35;">
+                    <span style="font-weight: 700; color: #b02a37;">${escapeHtml(entry.type)}</span>
+                    <span>: ${escapeHtml(entry.message)}</span>
+                    ${entry.source ? `<div style="color: #6c757d; margin-top: 2px;">${escapeHtml(entry.source)}</div>` : ''}
+                </div>
+            `)
+            .join('');
 
         statusPopup.innerHTML = `
             <div style="margin-bottom: 16px;">
@@ -208,7 +308,49 @@ async function scrapeProposals(options = {}) {
                     <div style="font-size: 13px; color: #1a1f36; font-weight: 600;">
                         ${tableData.length}
                     </div>
+
+                    <div style="
+                        font-size: 11px;
+                        color: #697386;
+                        text-transform: uppercase;
+                        letter-spacing: 0.4px;
+                        font-weight: 600;
+                    ">ETA</div>
+                    <div style="font-size: 13px; color: #1a1f36; font-weight: 600;">
+                        ${etaText}
+                    </div>
+
+                    <div style="
+                        font-size: 11px;
+                        color: #697386;
+                        text-transform: uppercase;
+                        letter-spacing: 0.4px;
+                        font-weight: 600;
+                    ">Errors</div>
+                    <div style="font-size: 13px; color: ${errorState.total > 0 ? '#b02a37' : '#1a1f36'}; font-weight: 700;">
+                        ${errorState.total}${errorTypeSummary ? ` (${escapeHtml(errorTypeSummary)})` : ''}
+                    </div>
                 </div>
+
+                ${errorState.recent.length > 0 ? `
+                    <div style="
+                        margin-top: 12px;
+                        padding-top: 12px;
+                        border-top: 1px solid rgba(230, 232, 235, 0.9);
+                    ">
+                        <div style="
+                            font-size: 10px;
+                            color: #697386;
+                            text-transform: uppercase;
+                            letter-spacing: 0.4px;
+                            font-weight: 700;
+                            margin-bottom: 6px;
+                        ">Recent Errors</div>
+                        <div style="display: flex; flex-direction: column; gap: 6px;">
+                            ${recentErrorRows}
+                        </div>
+                    </div>
+                ` : ''}
             </div>
 
             <button id="pauseButton" style="
@@ -269,8 +411,198 @@ async function scrapeProposals(options = {}) {
         });
     };
 
+    const recordError = (type, details = {}) => {
+        const normalizedType = typeof type === 'string' && type.trim()
+            ? type.trim()
+            : 'unknown_error';
+        const message = details?.message ? String(details.message) : 'Unknown error';
+        const source = details?.sourceUrl ? String(details.sourceUrl) : '';
+
+        errorState.total += 1;
+        errorState.byType[normalizedType] = (errorState.byType[normalizedType] || 0) + 1;
+        errorState.recent.unshift({
+            type: normalizedType,
+            message,
+            source
+        });
+        if (errorState.recent.length > MAX_RECENT_ERRORS) {
+            errorState.recent.length = MAX_RECENT_ERRORS;
+        }
+
+        updateStatus();
+    };
+
     const debugLog = (...args) => {
         console.log('[ProposalCopycat]', ...args);
+    };
+
+    const SANDBOX_BRIDGE_SOURCE = 'proposal-copycat-nuxt-sandbox';
+    const SANDBOX_REQUEST_TYPE = 'parse-nuxt';
+    const SANDBOX_RESPONSE_TYPE = 'parse-nuxt-result';
+    const SANDBOX_FRAME_ID = 'proposal-copycat-nuxt-sandbox-frame';
+    const SANDBOX_REQUEST_TIMEOUT_MS = 5000;
+
+    let sandboxFramePromise = null;
+    let sandboxRequestCounter = 0;
+    let sandboxBridgeState = 'unknown';
+    const pendingSandboxRequests = new Map();
+
+    const settleSandboxRequest = (requestId, result) => {
+        if (!pendingSandboxRequests.has(requestId)) {
+            return;
+        }
+
+        const pending = pendingSandboxRequests.get(requestId);
+        pendingSandboxRequests.delete(requestId);
+        clearTimeout(pending.timeoutId);
+        pending.resolve(result);
+    };
+
+    const sandboxMessageHandler = (event) => {
+        const data = event?.data;
+        if (!data || data.source !== SANDBOX_BRIDGE_SOURCE || data.type !== SANDBOX_RESPONSE_TYPE) {
+            return;
+        }
+
+        const sandboxFrame = document.getElementById(SANDBOX_FRAME_ID);
+        if (!sandboxFrame || event.source !== sandboxFrame.contentWindow) {
+            return;
+        }
+
+        if (!pendingSandboxRequests.has(data.requestId)) {
+            return;
+        }
+
+        if (!data.ok) {
+            sandboxBridgeState = 'ready';
+            settleSandboxRequest(data.requestId, {
+                ok: false,
+                error: data.error || 'sandbox parser returned an error'
+            });
+            return;
+        }
+
+        sandboxBridgeState = 'ready';
+        settleSandboxRequest(data.requestId, {
+            ok: true,
+            payload: data.payload || null
+        });
+    };
+
+    window.addEventListener('message', sandboxMessageHandler);
+
+    const ensureSandboxFrame = async () => {
+        if (sandboxFramePromise) {
+            return sandboxFramePromise;
+        }
+
+        sandboxFramePromise = new Promise((resolve, reject) => {
+            const existingFrame = document.getElementById(SANDBOX_FRAME_ID);
+            if (existingFrame) {
+                resolve(existingFrame);
+                return;
+            }
+
+            const sandboxFrame = document.createElement('iframe');
+            sandboxFrame.id = SANDBOX_FRAME_ID;
+            sandboxFrame.style.display = 'none';
+            sandboxFrame.setAttribute('aria-hidden', 'true');
+            sandboxFrame.src = chrome.runtime.getURL('sandbox.html');
+
+            sandboxFrame.addEventListener('load', () => {
+                debugLog('[Nuxt] sandbox frame loaded.');
+                resolve(sandboxFrame);
+            }, { once: true });
+
+            sandboxFrame.addEventListener('error', () => {
+                sandboxBridgeState = 'disabled';
+                sandboxFramePromise = null;
+                reject(new Error('Failed to load sandbox parser frame.'));
+            }, { once: true });
+
+            const hostNode = document.documentElement || document.body;
+            if (!hostNode) {
+                sandboxFramePromise = null;
+                reject(new Error('Could not mount sandbox frame (missing root node).'));
+                return;
+            }
+
+            hostNode.appendChild(sandboxFrame);
+        });
+
+        return sandboxFramePromise;
+    };
+
+    const parseNuxtScalarsInSandbox = async (scriptText, sourceUrl = '') => {
+        if (!scriptText) {
+            return null;
+        }
+
+        if (sandboxBridgeState === 'disabled') {
+            return null;
+        }
+
+        let sandboxFrame;
+        try {
+            sandboxFrame = await ensureSandboxFrame();
+        } catch (error) {
+            sandboxBridgeState = 'disabled';
+            debugLog(`[Nuxt] ${sourceUrl || 'unknown-url'}: sandbox unavailable (${error.message}).`);
+            return null;
+        }
+
+        if (!sandboxFrame?.contentWindow) {
+            debugLog(`[Nuxt] ${sourceUrl || 'unknown-url'}: sandbox frame has no contentWindow.`);
+            return null;
+        }
+
+        const sandboxResponse = await new Promise((resolve) => {
+            const requestId = `nuxt-${Date.now()}-${sandboxRequestCounter++}`;
+            const timeoutId = setTimeout(() => {
+                sandboxBridgeState = 'disabled';
+                settleSandboxRequest(requestId, {
+                    ok: false,
+                    error: 'sandbox parser timed out'
+                });
+            }, SANDBOX_REQUEST_TIMEOUT_MS);
+
+            pendingSandboxRequests.set(requestId, { resolve, timeoutId });
+
+            sandboxFrame.contentWindow.postMessage({
+                source: SANDBOX_BRIDGE_SOURCE,
+                type: SANDBOX_REQUEST_TYPE,
+                requestId,
+                sourceUrl,
+                scriptText
+            }, '*');
+        });
+
+        if (!sandboxResponse?.ok) {
+            return null;
+        }
+
+        return sandboxResponse.payload || null;
+    };
+
+    const teardownSandboxBridge = async () => {
+        window.removeEventListener('message', sandboxMessageHandler);
+
+        for (const [requestId, pending] of pendingSandboxRequests.entries()) {
+            clearTimeout(pending.timeoutId);
+            pending.resolve(null);
+            pendingSandboxRequests.delete(requestId);
+        }
+
+        try {
+            const sandboxFrame = await sandboxFramePromise;
+            if (sandboxFrame?.remove) {
+                sandboxFrame.remove();
+            }
+        } catch (error) {
+            // Ignore teardown errors from failed sandbox frame initialization.
+        } finally {
+            sandboxFramePromise = null;
+        }
     };
 
     debugLog(`Loaded ${existingProposals.length} existing proposals from storage. Mode: ${scrapeMode}`);
@@ -315,28 +647,31 @@ async function scrapeProposals(options = {}) {
 
     const extractSubmissionTime = (timeCell) => {
         if (!timeCell) {
-            return 'N/A';
+            return null;
         }
 
         const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim();
         const mainRow = timeCell.querySelector('.cell-content-wrapper > div') || timeCell.querySelector('div');
         const dateNode = mainRow?.querySelector('span.nowrap');
-        const relativeNode = timeCell.querySelector('small span, small');
-
         const dateText = normalize(dateNode?.textContent);
-        const relativeText = normalize(relativeNode?.textContent);
 
-        let statusText = normalize(mainRow?.textContent);
         if (dateText) {
-            statusText = normalize(statusText.replace(dateText, ''));
+            const parsedFromDateNode = Date.parse(dateText);
+            if (Number.isFinite(parsedFromDateNode)) {
+                return parsedFromDateNode;
+            }
         }
 
-        const compact = [statusText, dateText, relativeText].filter(Boolean).join(' | ');
-        if (compact) {
-            return compact;
+        const fallbackText = normalize(timeCell.textContent);
+        const dateMatch = fallbackText.match(/\b[A-Za-z]{3,9}\s+\d{1,2},\s+\d{4}\b/);
+        if (dateMatch) {
+            const parsedFromFallback = Date.parse(dateMatch[0]);
+            if (Number.isFinite(parsedFromFallback)) {
+                return parsedFromFallback;
+            }
         }
 
-        return normalize(timeCell.textContent) || 'N/A';
+        return null;
     };
 
     const parsePaginationState = (proposalsDiv) => {
@@ -540,365 +875,45 @@ async function scrapeProposals(options = {}) {
         });
     };
 
-    const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-    const parseJsonStringLiteral = (literal) => {
-        if (!literal || literal === 'null') {
-            return null;
-        }
-
-        try {
-            const parsed = JSON.parse(literal);
-            if (typeof parsed !== 'string') {
-                return null;
-            }
-            const trimmed = parsed.trim();
-            return trimmed || null;
-        } catch (error) {
-            return null;
-        }
-    };
-
-    const parseScalarLiteral = (token) => {
-        const trimmed = String(token || '').trim();
-        if (!trimmed) {
-            return undefined;
-        }
-
-        if (trimmed === 'null') return null;
-        if (trimmed === 'true') return true;
-        if (trimmed === 'false') return false;
-
-        if (/^-?\d+(?:\.\d+)?(?:e[+-]?\d+)?$/i.test(trimmed)) {
-            const value = Number(trimmed);
-            return Number.isNaN(value) ? undefined : value;
-        }
-
-        if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
-            return parseJsonStringLiteral(trimmed);
-        }
-
-        return undefined;
-    };
-
-    const splitTopLevelCsv = (input = '') => {
-        const text = String(input);
-        const parts = [];
-        let current = '';
-        let quoteChar = '';
-        let isEscaped = false;
-        let roundDepth = 0;
-        let squareDepth = 0;
-        let curlyDepth = 0;
-
-        for (let index = 0; index < text.length; index += 1) {
-            const char = text[index];
-
-            if (quoteChar) {
-                current += char;
-                if (isEscaped) {
-                    isEscaped = false;
-                } else if (char === '\\') {
-                    isEscaped = true;
-                } else if (char === quoteChar) {
-                    quoteChar = '';
-                }
-                continue;
-            }
-
-            if (char === '"' || char === "'") {
-                quoteChar = char;
-                current += char;
-                continue;
-            }
-
-            if (char === '(') roundDepth += 1;
-            else if (char === ')') roundDepth = Math.max(0, roundDepth - 1);
-            else if (char === '[') squareDepth += 1;
-            else if (char === ']') squareDepth = Math.max(0, squareDepth - 1);
-            else if (char === '{') curlyDepth += 1;
-            else if (char === '}') curlyDepth = Math.max(0, curlyDepth - 1);
-
-            if (
-                char === ',' &&
-                roundDepth === 0 &&
-                squareDepth === 0 &&
-                curlyDepth === 0
-            ) {
-                parts.push(current.trim());
-                current = '';
-                continue;
-            }
-
-            current += char;
-        }
-
-        if (current.trim()) {
-            parts.push(current.trim());
-        }
-
-        return parts;
-    };
-
-    const resolveNuxtScalarToken = (token, aliasScalars = null) => {
-        const literalValue = parseScalarLiteral(token);
-        if (literalValue !== undefined) {
-            return literalValue;
-        }
-
-        const trimmed = String(token || '').trim();
-        if (
-            aliasScalars &&
-            Object.prototype.hasOwnProperty.call(aliasScalars, trimmed)
-        ) {
-            return aliasScalars[trimmed];
-        }
-
-        return undefined;
-    };
-
-    const addUniqueScalarValue = (store, key, value) => {
-        if (!key || value === undefined) {
-            return;
-        }
-
-        let bucket = store.get(key);
-        if (!bucket) {
-            bucket = new Map();
-            store.set(key, bucket);
-        }
-
-        const marker = `${typeof value}:${JSON.stringify(value)}`;
-        bucket.set(marker, value);
-    };
-
-    const finalizeScalarStore = (store) => {
-        const result = {};
-        for (const [key, bucket] of store.entries()) {
-            const values = Array.from(bucket.values());
-            if (!values.length) continue;
-            result[key] = values.length === 1 ? values[0] : values;
-        }
-        return result;
-    };
-
-    const extractNuxtAliasScalars = (scriptText, sourceUrl = '') => {
-        if (!scriptText) {
-            return {};
-        }
-
-        const paramsMatch = scriptText.match(/^window\.__NUXT__=\(function\(([\s\S]*?)\)\{/);
-        const argsMatch = scriptText.match(/\}\)\(([\s\S]*)\)\s*;?\s*$/);
-
-        if (!paramsMatch || !argsMatch) {
-            debugLog(`[Nuxt] ${sourceUrl || 'unknown-url'}: could not parse __NUXT__ function header/call args.`);
-            return {};
-        }
-
-        const params = splitTopLevelCsv(paramsMatch[1]).map((value) => value.trim()).filter(Boolean);
-        const args = splitTopLevelCsv(argsMatch[1]);
-        const aliasScalars = {};
-
-        for (let index = 0; index < params.length; index += 1) {
-            const paramName = params[index];
-            const argToken = args[index];
-            const resolved = resolveNuxtScalarToken(argToken, null);
-            if (resolved !== undefined) {
-                aliasScalars[paramName] = resolved;
-            }
-        }
-
-        debugLog(
-            `[Nuxt] ${sourceUrl || 'unknown-url'}: resolved ${Object.keys(aliasScalars).length}/${params.length} scalar aliases.`
-        );
-        return aliasScalars;
-    };
-
-    const extractNuxtScalarData = (scriptText, sourceUrl = '') => {
+    const extractNuxtScalarData = async (scriptText, sourceUrl = '') => {
         if (!scriptText) {
             return {
                 aliases: {},
                 fields: {},
-                assignments: {}
+                assignments: {},
+                rawParsedData: null
             };
         }
 
-        const aliasScalars = extractNuxtAliasScalars(scriptText, sourceUrl);
-        const fieldStore = new Map();
-        const assignmentStore = new Map();
-        let fieldMatches = 0;
-        let assignmentMatches = 0;
-
-        const valueTokenPattern = '(null|true|false|-?\\d+(?:\\.\\d+)?(?:e[+-]?\\d+)?|"(?:\\\\.|[^"\\\\])*"|[A-Za-z_$][\\w$]*)';
-        const fieldPattern = new RegExp(`\\b([A-Za-z_$][\\w$]*)\\s*:\\s*${valueTokenPattern}`, 'g');
-        const assignmentPattern = new RegExp(`\\b([A-Za-z_$][\\w$]*)\\.([A-Za-z_$][\\w$]*)\\s*=\\s*${valueTokenPattern}`, 'g');
-
-        let fieldMatch;
-        while ((fieldMatch = fieldPattern.exec(scriptText)) !== null) {
-            fieldMatches += 1;
-            const resolved = resolveNuxtScalarToken(fieldMatch[2], aliasScalars);
-            addUniqueScalarValue(fieldStore, fieldMatch[1], resolved);
-        }
-
-        let assignmentMatch;
-        while ((assignmentMatch = assignmentPattern.exec(scriptText)) !== null) {
-            assignmentMatches += 1;
-            const resolved = resolveNuxtScalarToken(assignmentMatch[3], aliasScalars);
-            addUniqueScalarValue(assignmentStore, `${assignmentMatch[1]}.${assignmentMatch[2]}`, resolved);
-        }
-
-        const fields = finalizeScalarStore(fieldStore);
-        const assignments = finalizeScalarStore(assignmentStore);
-
-        debugLog(
-            `[Nuxt] ${sourceUrl || 'unknown-url'}: scalar extraction -> fieldMatches=${fieldMatches}, ` +
-            `fieldKeys=${Object.keys(fields).length}, assignmentMatches=${assignmentMatches}, ` +
-            `assignmentKeys=${Object.keys(assignments).length}.`
+        const sandboxResult = await parseNuxtScalarsInSandbox(scriptText, sourceUrl);
+        const sandboxFields = sandboxResult?.fields;
+        const sandboxRawParsedData = sandboxResult?.rawParsedData || null;
+        const hasFieldData = (
+            sandboxFields &&
+            typeof sandboxFields === 'object' &&
+            Object.keys(sandboxFields).length > 0
         );
 
+        if (hasFieldData || sandboxRawParsedData) {
+            debugLog(
+                `[Nuxt] ${sourceUrl || 'unknown-url'}: sandbox extraction succeeded with ` +
+                `${hasFieldData ? Object.keys(sandboxFields).length : 0} field key(s).`
+            );
+            return {
+                aliases: {},
+                fields: hasFieldData ? sandboxFields : {},
+                assignments: {},
+                rawParsedData: sandboxRawParsedData
+            };
+        }
+
+        debugLog(`[Nuxt] ${sourceUrl || 'unknown-url'}: sandbox extraction failed, returning empty scalar data.`);
         return {
-            aliases: aliasScalars,
-            fields,
-            assignments
+            aliases: {},
+            fields: {},
+            assignments: {},
+            rawParsedData: null
         };
-    };
-
-    const pickLongestString = (value) => {
-        if (typeof value === 'string') {
-            const trimmed = value.trim();
-            return trimmed || null;
-        }
-
-        if (Array.isArray(value)) {
-            const strings = value
-                .filter((item) => typeof item === 'string')
-                .map((item) => item.trim())
-                .filter(Boolean);
-
-            if (!strings.length) {
-                return null;
-            }
-
-            return strings.reduce((longest, current) => (
-                current.length > longest.length ? current : longest
-            ), strings[0]);
-        }
-
-        return null;
-    };
-
-    const toValueArray = (value) => {
-        if (value === undefined || value === null) {
-            return [];
-        }
-
-        if (!Array.isArray(value)) {
-            return [value];
-        }
-
-        return value.flatMap((item) => toValueArray(item));
-    };
-
-    const normalizePrimitiveValues = (values) => {
-        const deduped = new Map();
-
-        for (const item of values) {
-            if (item === undefined) {
-                continue;
-            }
-
-            let normalized = item;
-            if (typeof item === 'string') {
-                normalized = item.trim();
-                if (!normalized) {
-                    continue;
-                }
-            }
-
-            if (
-                normalized === null ||
-                typeof normalized === 'string' ||
-                typeof normalized === 'number' ||
-                typeof normalized === 'boolean'
-            ) {
-                const marker = `${typeof normalized}:${JSON.stringify(normalized)}`;
-                deduped.set(marker, normalized);
-            }
-        }
-
-        return Array.from(deduped.values());
-    };
-
-    const pickLongestStringFromValues = (values) => {
-        const strings = values.filter((item) => typeof item === 'string');
-        if (!strings.length) {
-            return null;
-        }
-
-        return strings.reduce((longest, current) => (
-            current.length > longest.length ? current : longest
-        ), strings[0]);
-    };
-
-    const pickFirstStringFromValues = (values) => {
-        const value = values.find((item) => typeof item === 'string');
-        return value === undefined ? null : value;
-    };
-
-    const pickFirstNumberFromValues = (values) => {
-        const value = values.find((item) => typeof item === 'number' && Number.isFinite(item));
-        return value === undefined ? null : value;
-    };
-
-    const pickStringsFromValues = (values) => {
-        const strings = values.filter((item) => typeof item === 'string');
-        return strings.length ? strings : null;
-    };
-
-    const pickPrimitivesFromValues = (values) => (
-        values.length ? values : null
-    );
-
-    const pickFirstNumericFromValues = (values) => {
-        for (const item of values) {
-            if (typeof item === 'number' && Number.isFinite(item)) {
-                return item;
-            }
-
-            if (typeof item === 'string') {
-                const trimmed = item.trim();
-                if (!trimmed) {
-                    continue;
-                }
-
-                const normalized = trimmed.replace(/,/g, '');
-                const parsed = Number(normalized);
-                if (Number.isFinite(parsed)) {
-                    return parsed;
-                }
-            }
-        }
-
-        return null;
-    };
-
-    const collectNuxtValuesByKey = (rawNuxtData, key) => {
-        const collected = [];
-
-        if (rawNuxtData?.fields && Object.prototype.hasOwnProperty.call(rawNuxtData.fields, key)) {
-            collected.push(...toValueArray(rawNuxtData.fields[key]));
-        }
-
-        if (rawNuxtData?.assignments) {
-            for (const [assignmentKey, assignmentValue] of Object.entries(rawNuxtData.assignments)) {
-                const suffix = assignmentKey.split('.').pop();
-                if (suffix === key) {
-                    collected.push(...toValueArray(assignmentValue));
-                }
-            }
-        }
-
-        return normalizePrimitiveValues(collected);
     };
 
     const setIfPresent = (target, key, value) => {
@@ -935,126 +950,154 @@ async function scrapeProposals(options = {}) {
         return cleaned;
     };
 
-    const buildCleanNuxtData = (rawNuxtData, linkData) => {
-        const getValues = (key) => collectNuxtValuesByKey(rawNuxtData, key);
+    const buildCleanNuxtDataFromRawParsedData = (rawParsedData, linkData) => {
+        const state = rawParsedData?.state || {};
+        const proposalDetails = state['proposal-details']?.proposalDetailsV3Response || {};
+        const application = proposalDetails.application || {};
+        const jobDetails = proposalDetails.jobDetails || {};
+        const job = jobDetails.opening?.job || {};
+        const buyer = jobDetails.buyer || {};
+        const buyerInfo = buyer.info || {};
+        const currentOrg = state.orgs?.current || {};
 
-        const jobPost = {};
-        const proposal = {};
         const freelancer = {};
-        const client = {};
-        const basePath = pickFirstStringFromValues(getValues('basePath'));
-        const routePath = pickFirstStringFromValues(getValues('routePath'));
-        const normalizedBasePath = basePath
-            ? (basePath.endsWith('/') ? basePath : `${basePath}/`)
-            : '/nx/proposals/';
-        const normalizedRoutePath = routePath
-            ? (routePath.startsWith('/') ? routePath.slice(1) : routePath)
-            : null;
-        const proposalUrlFromNuxt = normalizedRoutePath
-            ? `https://www.upwork.com${normalizedBasePath}${normalizedRoutePath}`
-            : null;
-        const workload = pickLongestStringFromValues(getValues('workload'));
-        const rawProposedAmounts = pickPrimitivesFromValues(getValues('amount'));
-        const normalizedProposedAmount = pickFirstNumericFromValues(rawProposedAmounts || []);
-        const isHourlyByWorkload = typeof workload === 'string' && /\bhrs?\b/i.test(workload);
-
-        setIfPresent(jobPost, 'title', pickFirstStringFromValues(getValues('title')));
-        setIfPresent(jobPost, 'description', pickLongestStringFromValues(getValues('description')));
-        setIfPresent(jobPost, 'workload', workload);
-        setIfPresent(jobPost, 'expectedDeliveryDate', pickLongestStringFromValues(getValues('deliveryDate')));
-        setIfPresent(jobPost, 'category', pickFirstStringFromValues(getValues('name')));
-        setIfPresent(jobPost, 'skills', pickStringsFromValues(getValues('prefLabel')));
-        setIfPresent(jobPost, 'skillIds', pickStringsFromValues(getValues('ontologyId')));
-        setIfPresent(jobPost, 'categorySlugs', pickStringsFromValues(getValues('urlSlug')));
-        setIfPresent(jobPost, 'jobPrompt', pickLongestStringFromValues(getValues('generate_prompt')));
-
-        setIfPresent(proposal, 'coverLetter', pickLongestStringFromValues(getValues('coverLetter')));
-        setIfPresent(proposal, 'connectsSpent', pickFirstNumberFromValues(getValues('connectsBid')));
-        setIfPresent(proposal, 'proposedAmounts', rawProposedAmounts);
-        setIfPresent(proposal, 'amountType', normalizedProposedAmount === null ? null : (isHourlyByWorkload ? 'hourly' : 'fixed'));
-        setIfPresent(proposal, 'hourlyRate', isHourlyByWorkload ? normalizedProposedAmount : null);
-        setIfPresent(proposal, 'fixedAmount', isHourlyByWorkload ? null : normalizedProposedAmount);
-        setIfPresent(proposal, 'screeningAnswers', pickStringsFromValues(getValues('answer')));
-        setIfPresent(proposal, 'status', pickFirstStringFromValues(getValues('status')));
-        setIfPresent(
-            proposal,
-            'submittedAtLabel',
-            pickFirstStringFromValues(getValues('submissionTime')) || linkData?.submissionTime || null
-        );
-        setIfPresent(proposal, 'proposalUrl', proposalUrlFromNuxt || linkData?.href || null);
-
-        setIfPresent(freelancer, 'firstName', pickFirstStringFromValues(getValues('firstName')));
-        setIfPresent(freelancer, 'lastName', pickFirstStringFromValues(getValues('lastName')));
-        setIfPresent(freelancer, 'applicationsCount', pickFirstNumberFromValues(getValues('jobApplicationsCount')));
-        setIfPresent(freelancer, 'profileRate', pickFirstNumberFromValues(getValues('applicantsProfileRate')));
+        setIfPresent(freelancer, 'id', proposalDetails.applicant?.personUid);
+        setIfPresent(freelancer, 'firstName', proposalDetails.applicant?.person?.personName?.firstName);
+        setIfPresent(freelancer, 'lastName', proposalDetails.applicant?.person?.personName?.lastName);
+        setIfPresent(freelancer, 'profileRate', proposalDetails.applicantsProfileRate);
+        setIfPresent(freelancer, 'title', currentOrg.title);
+        setIfPresent(freelancer, 'photoUrl', currentOrg.portrait100);
+        setIfPresent(freelancer, 'agencyOrSolo', currentOrg.typeTitle);
 
         const clientLocation = {};
-        setIfPresent(client, 'companyUid', pickFirstStringFromValues(getValues('companyUid')));
-        setIfPresent(client, 'jobsPosted', pickFirstNumberFromValues(getValues('postedCount')));
-        setIfPresent(client, 'feedbackCount', pickFirstNumberFromValues(getValues('feedbackCount')));
-        setIfPresent(client, 'lastActivity', pickLongestStringFromValues(getValues('lastBuyerActivity')));
-        setIfPresent(client, 'minRequiredJobSuccessScore', pickFirstNumberFromValues(getValues('minJobSuccessScore')));
-        setIfPresent(client, 'totalAssignments', pickFirstNumberFromValues(getValues('totalAssignments')));
-        setIfPresent(client, 'totalJobsWithHires', pickFirstNumberFromValues(getValues('totalJobsWithHires')));
-        setIfPresent(client, 'memberSince', pickFirstStringFromValues(getValues('contractDate')));
-        setIfPresent(clientLocation, 'city', pickFirstStringFromValues(getValues('city')));
-        setIfPresent(clientLocation, 'state', pickFirstStringFromValues(getValues('state')));
-        setIfPresent(clientLocation, 'country', pickFirstStringFromValues(getValues('country')));
+        setIfPresent(clientLocation, 'country', buyerInfo.location?.country);
+        setIfPresent(clientLocation, 'city', buyerInfo.location?.city);
+        setIfPresent(clientLocation, 'state', buyerInfo.location?.state);
+        setIfPresent(clientLocation, 'timezone', buyerInfo.location?.countryTimezone);
+
+        const historyStats = {};
+        setIfPresent(historyStats, 'totalSpent', buyerInfo.stats?.totalCharges?.amount);
+        setIfPresent(historyStats, 'feedbackCount', buyerInfo.stats?.feedbackCount);
+        setIfPresent(historyStats, 'ratingScore', buyerInfo.stats?.score);
+        setIfPresent(historyStats, 'totalJobsPosted', buyerInfo.jobs?.postedCount);
+        setIfPresent(historyStats, 'totalJobsWithHires', buyerInfo.stats?.totalJobsWithHires);
+        setIfPresent(historyStats, 'activeAssignments', buyerInfo.stats?.activeAssignmentsCount);
+
+        const client = {};
+        setIfPresent(client, 'companyId', buyerInfo.company?.companyUid);
         setIfPresent(client, 'location', clientLocation);
+        setIfPresent(client, 'historyStats', historyStats);
+        setIfPresent(client, 'isPaymentVerified', buyer.isPaymentMethodVerified);
+        setIfPresent(client, 'isEnterprise', buyer.isEnterprise);
+        setIfPresent(client, 'memberSince', buyerInfo.company?.contractDate);
+
+        const budget = {};
+        const budgetAmount = job.budget?.amount;
+        const hasHourlyBudgetInfo = (
+            job.extendedBudgetInfo?.hourlyBudgetMin !== undefined ||
+            job.extendedBudgetInfo?.hourlyBudgetMax !== undefined
+        );
+        let budgetType = null;
+        if (typeof budgetAmount === 'number') {
+            budgetType = budgetAmount === 0 ? 'Hourly' : 'Fixed';
+        } else if (hasHourlyBudgetInfo) {
+            budgetType = 'Hourly';
+        }
+        setIfPresent(budget, 'type', budgetType);
+        setIfPresent(budget, 'amount', budgetAmount);
+        setIfPresent(budget, 'hourlyMin', job.extendedBudgetInfo?.hourlyBudgetMin);
+        setIfPresent(budget, 'hourlyMax', job.extendedBudgetInfo?.hourlyBudgetMax);
+
+        const skillsAndExpertise = {};
+        setIfPresent(skillsAndExpertise, 'occupation', job.sandsData?.occupation?.prefLabel);
+        setIfPresent(
+            skillsAndExpertise,
+            'additionalSkills',
+            (job.sandsData?.additionalSkills || []).map((skill) => skill?.prefLabel).filter(Boolean)
+        );
+        setIfPresent(
+            skillsAndExpertise,
+            'ontologySkills',
+            (job.sandsData?.ontologySkills || []).map((skill) => skill?.prefLabel).filter(Boolean)
+        );
+
+        const clientActivityOnJob = {};
+        setIfPresent(clientActivityOnJob, 'invitationsSent', job.clientActivity?.invitationsSent);
+        setIfPresent(clientActivityOnJob, 'totalInvitedToInterview', job.clientActivity?.totalInvitedToInterview);
+        setIfPresent(clientActivityOnJob, 'unansweredInvites', job.clientActivity?.unansweredInvites);
+        setIfPresent(clientActivityOnJob, 'totalApplicants', job.clientActivity?.totalApplicants);
+        setIfPresent(clientActivityOnJob, 'totalHired', job.clientActivity?.totalHired);
+        setIfPresent(clientActivityOnJob, 'lastBuyerActivity', job.clientActivity?.lastBuyerActivity);
+
+        const clientRequirements = {};
+        setIfPresent(clientRequirements, 'minHoursWeek', jobDetails.qualifications?.minHoursWeek);
+        setIfPresent(clientRequirements, 'minJobSuccessScore', jobDetails.qualifications?.minJobSuccessScore);
+        setIfPresent(clientRequirements, 'englishSkillLevel', jobDetails.qualifications?.prefEnglishSkill);
+        if (jobDetails.qualifications?.localMarket !== undefined) {
+            setIfPresent(
+                clientRequirements,
+                'locationPreference',
+                jobDetails.qualifications.localMarket ? 'Local/Specific' : 'Worldwide'
+            );
+        }
+
+        const jobPost = {};
+        setIfPresent(jobPost, 'jobId', job.openingUid);
+        setIfPresent(jobPost, 'url', job.info?.ciphertext ? `https://www.upwork.com/jobs/${job.info.ciphertext}` : null);
+        setIfPresent(jobPost, 'title', job.info?.title);
+        setIfPresent(jobPost, 'description', job.description);
+        setIfPresent(jobPost, 'category', job.category?.name);
+        setIfPresent(jobPost, 'postedOn', job.postedOn);
+        setIfPresent(jobPost, 'workload', job.workload);
+        setIfPresent(jobPost, 'duration', job.engagementDuration?.label);
+        setIfPresent(jobPost, 'tier', job.contractorTier);
+        setIfPresent(jobPost, 'budget', budget);
+        setIfPresent(jobPost, 'skillsAndExpertise', skillsAndExpertise);
+        setIfPresent(jobPost, 'clientActivityOnJob', clientActivityOnJob);
+        setIfPresent(jobPost, 'clientRequirements', clientRequirements);
+        setIfPresent(
+            jobPost,
+            'screeningQuestions',
+            (jobDetails.qualifications?.questions || []).map((item) => item?.question).filter(Boolean)
+        );
+
+        const terms = {};
+        setIfPresent(terms, 'proposedRate', application.terms?.chargeRate?.amount);
+        setIfPresent(terms, 'connectsSpent', application.terms?.connectsBid);
+
+        const competitionStats = {};
+        setIfPresent(competitionStats, 'hired', proposalDetails.jobApplicationsCount?.hired?.count || 0);
+        setIfPresent(competitionStats, 'archived', proposalDetails.jobApplicationsCount?.archived?.count || 0);
+        setIfPresent(competitionStats, 'declined', proposalDetails.jobApplicationsCount?.declined?.count || 0);
+        setIfPresent(competitionStats, 'withdrawn', proposalDetails.jobApplicationsCount?.withdrawn?.count || 0);
+
+        const proposal = {};
+        setIfPresent(proposal, 'applicationId', application.applicationUID);
+        setIfPresent(proposal, 'submittedOn', linkData?.submissionTime || job.postedOn || null);
+        setIfPresent(proposal, 'coverLetter', application.coverLetter);
+        setIfPresent(proposal, 'proposalUrl', linkData?.href || null);
+        setIfPresent(proposal, 'terms', terms);
+        setIfPresent(
+            proposal,
+            'answersToQuestions',
+            (application.questionsAnswers || []).map((item) => ({
+                question: item?.question || null,
+                answer: item?.answer || null
+            }))
+        );
+        setIfPresent(proposal, 'competitionStats', competitionStats);
 
         return removeEmptySections({
-            jobPost,
-            proposal,
             freelancer,
-            client
+            client,
+            jobPost,
+            proposal
         });
     };
 
-    const extractFieldFromNuxtScript = (scriptText, fieldName, sourceUrl = '') => {
-        if (!scriptText) {
-            debugLog(`[Nuxt] ${sourceUrl || 'unknown-url'}: cannot extract ${fieldName} (missing Nuxt script).`);
-            return null;
-        }
-
-        const pattern = new RegExp(
-            `\\b${escapeRegExp(fieldName)}\\s*:\\s*(null|"(?:\\\\.|[^"\\\\])*")`,
-            'g'
-        );
-
-        let totalMatches = 0;
-        const values = [];
-        let match;
-        while ((match = pattern.exec(scriptText)) !== null) {
-            totalMatches += 1;
-            const decoded = parseJsonStringLiteral(match[1]);
-            if (decoded) {
-                values.push(decoded);
-            }
-        }
-
-        if (!totalMatches) {
-            debugLog(`[Nuxt] ${sourceUrl || 'unknown-url'}: ${fieldName} not found in Nuxt script.`);
-            return null;
-        }
-
-        if (!values.length) {
-            debugLog(
-                `[Nuxt] ${sourceUrl || 'unknown-url'}: ${fieldName} had ${totalMatches} match(es) but no non-null string values.`
-            );
-            return null;
-        }
-
-        const bestValue = values.reduce((longest, current) => (
-            current.length > longest.length ? current : longest
-        ), values[0]);
-
-        debugLog(
-            `[Nuxt] ${sourceUrl || 'unknown-url'}: extracted ${fieldName} from Nuxt script ` +
-            `(${bestValue.length} chars, ${values.length}/${totalMatches} non-null match(es)).`
-        );
-
-        return bestValue;
-    };
+    const buildCleanNuxtData = (rawNuxtData, linkData) => (
+        buildCleanNuxtDataFromRawParsedData(rawNuxtData?.rawParsedData, linkData)
+    );
 
     const extractNuxtData = async (parsedDoc, sourceUrl = '') => {
         const scripts = Array.from(parsedDoc.querySelectorAll('script'));
@@ -1120,6 +1163,304 @@ async function scrapeProposals(options = {}) {
         return selectedScript;
     };
 
+    const extractNuxtDataJsonPayload = (parsedDoc, sourceUrl = '') => {
+        const nuxtDataScript = parsedDoc.querySelector('script#__NUXT_DATA__');
+        if (!nuxtDataScript) {
+            debugLog(`[JobPost] ${sourceUrl || 'unknown-url'}: missing script#__NUXT_DATA__.`);
+            return null;
+        }
+
+        const jsonText = (nuxtDataScript.textContent || '').trim();
+        if (!jsonText) {
+            debugLog(`[JobPost] ${sourceUrl || 'unknown-url'}: script#__NUXT_DATA__ is empty.`);
+            return null;
+        }
+
+        try {
+            const parsed = JSON.parse(jsonText);
+            debugLog(
+                `[JobPost] ${sourceUrl || 'unknown-url'}: parsed __NUXT_DATA__ JSON ` +
+                `(${jsonText.length} chars, root=${Array.isArray(parsed) ? 'array' : typeof parsed}).`
+            );
+            return parsed;
+        } catch (error) {
+            debugLog(
+                `[JobPost] ${sourceUrl || 'unknown-url'}: failed to parse __NUXT_DATA__ JSON ` +
+                `(${error?.message || 'unknown error'}).`
+            );
+            return null;
+        }
+    };
+
+    const parseNuxtPayload = (nuxtDataArray, sourceUrl = '') => {
+        if (!Array.isArray(nuxtDataArray) || nuxtDataArray.length === 0) {
+            debugLog(`[JobPost] ${sourceUrl || 'unknown-url'}: invalid nuxtData payload array.`);
+            return null;
+        }
+
+        const resolvedMap = new Map();
+
+        const resolveRef = (ref) => {
+            if (typeof ref !== 'number') {
+                return ref;
+            }
+
+            if (ref < 0 || ref >= nuxtDataArray.length) {
+                return undefined;
+            }
+
+            if (resolvedMap.has(ref)) {
+                return resolvedMap.get(ref);
+            }
+
+            const value = nuxtDataArray[ref];
+
+            if (value === null || typeof value !== 'object') {
+                return value;
+            }
+
+            if (Array.isArray(value)) {
+                if (value.length === 2 && value[0] === 'Reactive') {
+                    return resolveRef(value[1]);
+                }
+
+                const resolvedArray = [];
+                resolvedMap.set(ref, resolvedArray);
+                for (const item of value) {
+                    resolvedArray.push(resolveRef(item));
+                }
+                return resolvedArray;
+            }
+
+            const resolvedObject = {};
+            resolvedMap.set(ref, resolvedObject);
+            for (const [key, childRef] of Object.entries(value)) {
+                resolvedObject[key] = resolveRef(childRef);
+            }
+            return resolvedObject;
+        };
+
+        try {
+            // Nuxt 3 payload hydration root is typically at index 1.
+            return resolveRef(1);
+        } catch (error) {
+            debugLog(
+                `[JobPost] ${sourceUrl || 'unknown-url'}: dereference failed ` +
+                `(${error?.message || 'unknown error'}).`
+            );
+            return null;
+        }
+    };
+
+    const extractCleanJobPostData = (jobPostRawData, sourceUrl = '') => {
+        const nuxtData = jobPostRawData?.nuxtData;
+        const fullPayload = parseNuxtPayload(nuxtData, sourceUrl);
+        if (!fullPayload || typeof fullPayload !== 'object') {
+            debugLog(`[JobPost] ${sourceUrl || 'unknown-url'}: no dereferenced payload produced.`);
+            return null;
+        }
+
+        const statePayload = fullPayload.state && typeof fullPayload.state === 'object'
+            ? fullPayload.state
+            : {};
+        const vuexPayload = fullPayload.vuex && typeof fullPayload.vuex === 'object'
+            ? fullPayload.vuex
+            : {};
+        const appState = { ...statePayload, ...vuexPayload };
+
+        const jobDetails = appState.jobDetails || {};
+        const job = jobDetails.job || {};
+        const buyer = jobDetails.buyer || {};
+        const buyerStats = buyer.stats || {};
+        const buyerLocation = buyer.location || {};
+        const buyerCompany = buyer.company || {};
+        const buyerJobsStats = buyer.jobs || {};
+        const viewer = appState.user || {};
+        const viewerCurrent = viewer.current || appState.orgs?.current || {};
+
+        const jobPost = {};
+        const budget = {};
+        const skills = (job.segmentationData?.customFields || [])
+            .map((field) => field?.value || field?.label || field?.name)
+            .filter(Boolean);
+        const screeningQuestions = (job.questions || [])
+            .map((question) => question?.question)
+            .filter(Boolean);
+
+        setIfPresent(jobPost, 'id', job.uid);
+        setIfPresent(jobPost, 'ciphertext', job.ciphertext);
+        setIfPresent(jobPost, 'url', job.ciphertext ? `https://www.upwork.com/jobs/${job.ciphertext}` : null);
+        setIfPresent(jobPost, 'title', job.title);
+        setIfPresent(jobPost, 'description', job.description);
+        setIfPresent(jobPost, 'status', job.status);
+        setIfPresent(jobPost, 'category', job.category?.name);
+        setIfPresent(jobPost, 'subCategory', job.categoryGroup?.name);
+        setIfPresent(jobPost, 'type', job.type);
+        setIfPresent(budget, 'currency', job.budget?.currencyCode);
+        setIfPresent(budget, 'amount', job.budget?.amount);
+        setIfPresent(budget, 'weeklyRetainer', job.weeklyRetainerBudget);
+        setIfPresent(budget, 'extendedInfo', job.extendedBudgetInfo || null);
+        setIfPresent(jobPost, 'budget', budget);
+        setIfPresent(jobPost, 'duration', job.engagementDuration);
+        setIfPresent(jobPost, 'workload', job.workload);
+        setIfPresent(jobPost, 'postedOn', job.postedOn);
+        setIfPresent(jobPost, 'clientActivity', job.clientActivity || null);
+        setIfPresent(jobPost, 'skills', skills);
+        setIfPresent(jobPost, 'screeningQuestions', screeningQuestions);
+
+        const clientInfo = {};
+        const clientLocation = {};
+        const clientStats = {};
+        const companyHistory = {};
+
+        setIfPresent(clientLocation, 'country', buyerLocation.country);
+        setIfPresent(clientLocation, 'city', buyerLocation.city);
+        setIfPresent(clientLocation, 'timezone', buyerLocation.countryTimezone);
+
+        setIfPresent(clientStats, 'totalSpent', buyerStats.totalCharges?.amount);
+        setIfPresent(clientStats, 'totalHires', buyerStats.totalJobsWithHires);
+        setIfPresent(clientStats, 'activeAssignments', buyerStats.activeAssignmentsCount);
+        setIfPresent(clientStats, 'feedbackScore', buyerStats.score);
+        setIfPresent(clientStats, 'avgHourlyRatePaid', buyer.avgHourlyJobsRate);
+
+        setIfPresent(companyHistory, 'memberSince', buyerCompany.contractDate);
+        setIfPresent(companyHistory, 'totalJobsPosted', buyerJobsStats.postedCount);
+        setIfPresent(companyHistory, 'openJobsCount', buyerJobsStats.openCount);
+
+        setIfPresent(clientInfo, 'location', clientLocation);
+        setIfPresent(clientInfo, 'stats', clientStats);
+        setIfPresent(clientInfo, 'isPaymentMethodVerified', buyer.isPaymentMethodVerified);
+        setIfPresent(clientInfo, 'isEnterprise', buyer.isEnterprise);
+        setIfPresent(clientInfo, 'companyHistory', companyHistory);
+
+        const pastJobsSource = Array.isArray(appState.workHistory)
+            ? appState.workHistory
+            : (Array.isArray(buyer.jobs) ? buyer.jobs : []);
+        const clientPastJobs = pastJobsSource
+            .map((pastJob) => {
+                const entry = {};
+                setIfPresent(entry, 'title', pastJob?.jobInfo?.title);
+                setIfPresent(entry, 'status', pastJob?.status);
+                setIfPresent(entry, 'startDate', pastJob?.startDate);
+                setIfPresent(entry, 'endDate', pastJob?.endDate);
+                setIfPresent(entry, 'totalCharge', pastJob?.totalCharge);
+                setIfPresent(entry, 'freelancerName', pastJob?.contractorInfo?.contractorName);
+
+                const feedbackLeftForFreelancer = {};
+                setIfPresent(feedbackLeftForFreelancer, 'score', pastJob?.feedback?.score);
+                setIfPresent(feedbackLeftForFreelancer, 'comment', pastJob?.feedback?.comment);
+                setIfPresent(entry, 'feedbackLeftForFreelancer', feedbackLeftForFreelancer);
+
+                const feedbackFromFreelancer = {};
+                setIfPresent(feedbackFromFreelancer, 'score', pastJob?.feedbackToClient?.score);
+                setIfPresent(feedbackFromFreelancer, 'comment', pastJob?.feedbackToClient?.comment);
+                setIfPresent(entry, 'feedbackFromFreelancer', feedbackFromFreelancer);
+
+                return entry;
+            })
+            .filter((entry) => Object.keys(entry).length > 0);
+
+        const viewerProfile = {};
+        setIfPresent(viewerProfile, 'name', viewerCurrent.title || null);
+        setIfPresent(viewerProfile, 'photoUrl', viewerCurrent.photoUrl || viewerCurrent.portrait100 || null);
+        setIfPresent(viewerProfile, 'type', viewerCurrent.type || null);
+        setIfPresent(viewerProfile, 'monetizedTitle', viewerCurrent.monetizedTitle || null);
+
+        const cleanData = {};
+        setIfPresent(cleanData, 'jobPost', jobPost);
+        setIfPresent(cleanData, 'clientInfo', clientInfo);
+        setIfPresent(cleanData, 'clientPastJobs', clientPastJobs);
+        setIfPresent(cleanData, 'viewerProfile', viewerProfile);
+        const normalizedCleanData = removeEmptySections(cleanData);
+
+        debugLog(
+            `[JobPost] ${sourceUrl || 'unknown-url'}: cleaned payload built ` +
+            `(sections=${Object.keys(normalizedCleanData).join(',') || 'none'}, pastJobs=${clientPastJobs.length}).`
+        );
+        return normalizedCleanData;
+    };
+
+    const fetchJobPostRawData = async (jobUrl, sourceUrl = '') => {
+        if (!jobUrl) {
+            debugLog(`[JobPost] ${sourceUrl || 'unknown-url'}: no job URL found, skipping job page fetch.`);
+            return null;
+        }
+
+        try {
+            debugLog(`[JobPost] ${sourceUrl || 'unknown-url'}: fetching job page ${jobUrl}`);
+            const response = await fetch(jobUrl);
+            debugLog(
+                `[JobPost] ${sourceUrl || 'unknown-url'}: job page HTTP ${response.status} ` +
+                `(${response.ok ? 'ok' : 'not ok'}).`
+            );
+
+            if (!response.ok) {
+                recordError('job_post_fetch_http', {
+                    message: `HTTP ${response.status}`,
+                    sourceUrl: `${sourceUrl || 'unknown-url'} -> ${jobUrl}`
+                });
+                return null;
+            }
+
+            const html = await response.text();
+            debugLog(`[JobPost] ${sourceUrl || 'unknown-url'}: fetched job HTML (${html.length} chars).`);
+
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+            const nuxtDataPayload = extractNuxtDataJsonPayload(doc, jobUrl);
+
+            if (!nuxtDataPayload) {
+                return null;
+            }
+
+            const rawJobPostData = {
+                url: jobUrl,
+                sourceScriptId: '__NUXT_DATA__',
+                nuxtData: nuxtDataPayload
+            };
+            const data = extractCleanJobPostData(rawJobPostData, jobUrl);
+
+            return {
+                // rawData: rawJobPostData,
+                data
+            };
+        } catch (error) {
+            debugLog(
+                `[JobPost] ${sourceUrl || 'unknown-url'}: failed to fetch/parse job page ` +
+                `(${error?.message || 'unknown error'}).`
+            );
+            recordError('job_post_fetch_exception', {
+                message: error?.message || 'failed to fetch/parse job page',
+                sourceUrl: `${sourceUrl || 'unknown-url'} -> ${jobUrl}`
+            });
+            return null;
+        }
+    };
+
+    const buildCompactProposalData = (proposalRecord) => {
+        const compact = JSON.parse(JSON.stringify(proposalRecord || {}));
+
+        if (compact?.proposalDetailsPage?.data?.proposal) {
+            delete compact.proposalDetailsPage.data.proposal.answersToQuestions;
+        }
+        if (compact?.proposalDetailsPage?.data?.jobPost) {
+            delete compact.proposalDetailsPage.data.jobPost.jobPrompt;
+        }
+        if (compact?.jobPostPage?.data) {
+            delete compact.jobPostPage.data.clientPastJobs;
+        }
+
+        // Legacy shape fallback if old records are still flowing through.
+        if (compact?.proposal) {
+            delete compact.proposal.screeningAnswers;
+        }
+        if (compact?.jobPost) {
+            delete compact.jobPost.jobPrompt;
+        }
+
+        return compact;
+    };
+
     const visitProposalPage = async (linkData) => {
         try {
             debugLog(`[Proposal] Fetching ${linkData.href}`);
@@ -1127,7 +1468,11 @@ async function scrapeProposals(options = {}) {
             debugLog(`[Proposal] ${linkData.href}: HTTP ${response.status} (${response.ok ? 'ok' : 'not ok'})`);
 
             if (!response.ok) {
-                throw new Error(`Failed to fetch proposal page: HTTP ${response.status}`);
+                recordError('proposal_fetch_http', {
+                    message: `HTTP ${response.status}`,
+                    sourceUrl: linkData.href
+                });
+                return null;
             }
 
             const html = await response.text();
@@ -1136,133 +1481,187 @@ async function scrapeProposals(options = {}) {
             const doc = parser.parseFromString(html, 'text/html');
 
             const nuxtScript = await extractNuxtData(doc, linkData.href);
-            const rawNuxtData = extractNuxtScalarData(nuxtScript, linkData.href);
-            const cleanData = buildCleanNuxtData(rawNuxtData, linkData);
-            const coverLetter =
-                cleanData?.proposal?.coverLetter ||
-                extractFieldFromNuxtScript(nuxtScript, 'coverLetter', linkData.href);
-            const description =
-                cleanData?.jobPost?.description ||
-                extractFieldFromNuxtScript(nuxtScript, 'description', linkData.href);
-
-            if (!cleanData?.proposal?.coverLetter && coverLetter) {
-                cleanData.proposal = cleanData.proposal || {};
-                cleanData.proposal.coverLetter = coverLetter;
-            }
-
-            if (!cleanData?.jobPost?.description && description) {
-                cleanData.jobPost = cleanData.jobPost || {};
-                cleanData.jobPost.description = description;
-            }
+            const rawNuxtData = await extractNuxtScalarData(nuxtScript, linkData.href);
+            const proposalDetailsData = buildCleanNuxtData(rawNuxtData, linkData);
+            const jobPostUrl = proposalDetailsData?.jobPost?.url || null;
+            const jobPostFetchResult = await fetchJobPostRawData(jobPostUrl, linkData.href);
+            const jobPostData = jobPostFetchResult?.data || null;
+            const coverLetter = proposalDetailsData?.proposal?.coverLetter || null;
+            const description = proposalDetailsData?.jobPost?.description || null;
+            const isHired = /hired/i.test(String(linkData.reason || ''));
 
             debugLog(
                 `[Proposal] ${linkData.href}: extracted from Nuxt -> description=${description ? description.length : 0} chars, ` +
                 `coverLetter=${coverLetter ? coverLetter.length : 0} chars, hasNuxtScript=${!!nuxtScript}, ` +
-                `cleanSections=${Object.keys(cleanData || {}).join(',') || 'none'}`
+                `dataSections=${Object.keys(proposalDetailsData || {}).join(',') || 'none'}, ` +
+                `hasJobPostData=${!!jobPostData}, isHired=${isHired}`
             );
-            
-            const proposalData = {
-                ...cleanData,
-                href: linkData.href,
-                text: linkData.text,
-                reason: linkData.reason,
-                submissionTime: linkData.submissionTime
+
+            let proposalData = {
+                proposalListPage: {
+                    href: linkData.href,
+                    text: linkData.text,
+                    reason: linkData.reason,
+                    submissionTime: linkData.submissionTime,
+                    isHired
+                },
+                proposalDetailsPage: {
+                    url: linkData.href,
+                    data: proposalDetailsData,
+                    // rawParsedData: rawNuxtData?.rawParsedData || null,
+                    // nuxtScript: includeRawNuxtScript ? nuxtScript : null
+                },
+                jobPostPage: {
+                    url: jobPostUrl,
+                    data: jobPostData
+                    // rawData: jobPostRawData
+                }
             };
 
-            if (includeRawNuxtScript) {
-                proposalData.nuxtScript = nuxtScript;
-            }
-            
             // Add to local storage
             const storageUpdate = await chrome.storage.local.get('proposals');
             const proposals = storageUpdate.proposals || [];
             proposals.push(proposalData);
+
+            const updateLatestProposal = (nextRecord) => {
+                proposalData = nextRecord;
+                proposals[proposals.length - 1] = nextRecord;
+            };
+
             try {
                 await chrome.storage.local.set({ proposals });
-                if (proposalData.nuxtScript) {
-                    debugLog(
-                        `[Proposal] ${linkData.href}: saved with nuxtScript + cleaned nuxtData ` +
-                        `(sections=${Object.keys(cleanData || {}).join(',') || 'none'}).`
-                    );
-                } else {
-                    debugLog(
-                        `[Proposal] ${linkData.href}: saved with cleaned nuxtData only ` +
-                        `(sections=${Object.keys(cleanData || {}).join(',') || 'none'}).`
-                    );
-                }
+                debugLog(
+                    `[Proposal] ${linkData.href}: saved grouped payload by source pages ` +
+                    `(sections=list,details,jobPost).`
+                );
             } catch (storageError) {
-                const hasRawScript = !!proposalData.nuxtScript;
+                const hasRawScript = !!proposalData?.proposalDetailsPage?.nuxtScript;
+                const hasJobPostRawData = !!proposalData?.jobPostPage?.rawData;
+                const hasRawParsedData = !!proposalData?.proposalDetailsPage?.rawParsedData;
+
                 if (hasRawScript) {
-                    // Raw Nuxt script can be large; retry without it first.
                     debugLog(
-                        `[Proposal] ${linkData.href}: storage write failed with full nuxtScript (${storageError?.message || 'unknown error'}). ` +
-                        'Retrying without nuxtScript.'
+                        `[Proposal] ${linkData.href}: storage write failed with proposalDetails nuxtScript (${storageError?.message || 'unknown error'}). ` +
+                        'Retrying without proposalDetails nuxtScript.'
                     );
-                    const withoutScriptData = { ...proposalData, nuxtScript: null };
-                    proposals[proposals.length - 1] = withoutScriptData;
+                    updateLatestProposal({
+                        ...proposalData,
+                        proposalDetailsPage: {
+                            ...(proposalData.proposalDetailsPage || {}),
+                            nuxtScript: null
+                        }
+                    });
                     try {
                         await chrome.storage.local.set({ proposals });
-                        proposalData.nuxtScript = null;
-                        debugLog(
-                            `[Proposal] ${linkData.href}: saved without nuxtScript, kept nuxtData ` +
-                            `(sections=${Object.keys(cleanData || {}).join(',') || 'none'}).`
-                        );
+                        debugLog(`[Proposal] ${linkData.href}: saved without proposalDetails nuxtScript.`);
                     } catch (secondaryStorageError) {
                         debugLog(
-                            `[Proposal] ${linkData.href}: storage write still failed without nuxtScript ` +
+                            `[Proposal] ${linkData.href}: storage write still failed without proposalDetails nuxtScript ` +
                             `(${secondaryStorageError?.message || 'unknown error'}). Retrying with compact payload.`
                         );
-                        const minimalProposalData = { ...withoutScriptData };
-                        if (minimalProposalData.proposal) {
-                            delete minimalProposalData.proposal.screeningAnswers;
-                        }
-                        if (minimalProposalData.jobPost) {
-                            delete minimalProposalData.jobPost.jobPrompt;
-                        }
-                        proposals[proposals.length - 1] = minimalProposalData;
+                        updateLatestProposal(buildCompactProposalData({
+                            ...proposalData,
+                            proposalDetailsPage: {
+                                ...(proposalData.proposalDetailsPage || {}),
+                                rawParsedData: null
+                            },
+                            jobPostPage: {
+                                ...(proposalData.jobPostPage || {}),
+                                rawData: null
+                            }
+                        }));
                         await chrome.storage.local.set({ proposals });
-                        proposalData.nuxtScript = null;
-                        if (proposalData.proposal) {
-                            delete proposalData.proposal.screeningAnswers;
+                        debugLog(`[Proposal] ${linkData.href}: saved without heavy raw fields using compact payload.`);
+                    }
+                } else if (hasJobPostRawData) {
+                    debugLog(
+                        `[Proposal] ${linkData.href}: storage write failed with jobPostPage rawData (${storageError?.message || 'unknown error'}). ` +
+                        'Retrying without jobPostPage rawData.'
+                    );
+                    updateLatestProposal({
+                        ...proposalData,
+                        jobPostPage: {
+                            ...(proposalData.jobPostPage || {}),
+                            rawData: null
                         }
-                        if (proposalData.jobPost) {
-                            delete proposalData.jobPost.jobPrompt;
+                    });
+                    try {
+                        await chrome.storage.local.set({ proposals });
+                        debugLog(`[Proposal] ${linkData.href}: saved without jobPostPage rawData.`);
+                    } catch (secondaryStorageError) {
+                        debugLog(
+                            `[Proposal] ${linkData.href}: storage write still failed without jobPostPage rawData ` +
+                            `(${secondaryStorageError?.message || 'unknown error'}). Retrying without proposalDetails rawParsedData.`
+                        );
+                        updateLatestProposal({
+                            ...proposalData,
+                            proposalDetailsPage: {
+                                ...(proposalData.proposalDetailsPage || {}),
+                                rawParsedData: null
+                            }
+                        });
+                        try {
+                            await chrome.storage.local.set({ proposals });
+                            debugLog(`[Proposal] ${linkData.href}: saved without heavy raw fields.`);
+                        } catch (tertiaryStorageError) {
+                            debugLog(
+                                `[Proposal] ${linkData.href}: storage still failed after removing heavy raw fields ` +
+                                `(${tertiaryStorageError?.message || 'unknown error'}). Retrying with compact payload.`
+                            );
+                            updateLatestProposal(buildCompactProposalData(proposalData));
+                            await chrome.storage.local.set({ proposals });
+                            debugLog(`[Proposal] ${linkData.href}: saved with compact grouped payload.`);
                         }
-                        debugLog(`[Proposal] ${linkData.href}: saved without nuxtScript using compact payload.`);
+                    }
+                } else if (hasRawParsedData) {
+                    debugLog(
+                        `[Proposal] ${linkData.href}: storage write failed with proposalDetails rawParsedData (${storageError?.message || 'unknown error'}). ` +
+                        'Retrying without proposalDetails rawParsedData.'
+                    );
+                    updateLatestProposal({
+                        ...proposalData,
+                        proposalDetailsPage: {
+                            ...(proposalData.proposalDetailsPage || {}),
+                            rawParsedData: null
+                        }
+                    });
+                    try {
+                        await chrome.storage.local.set({ proposals });
+                        debugLog(`[Proposal] ${linkData.href}: saved without proposalDetails rawParsedData.`);
+                    } catch (secondaryStorageError) {
+                        debugLog(
+                            `[Proposal] ${linkData.href}: storage write still failed without proposalDetails rawParsedData ` +
+                            `(${secondaryStorageError?.message || 'unknown error'}). Retrying with compact payload.`
+                        );
+                        updateLatestProposal(buildCompactProposalData(proposalData));
+                        await chrome.storage.local.set({ proposals });
+                        debugLog(`[Proposal] ${linkData.href}: saved with compact grouped payload.`);
                     }
                 } else {
                     debugLog(
-                        `[Proposal] ${linkData.href}: storage write failed with cleaned payload ` +
+                        `[Proposal] ${linkData.href}: storage write failed with grouped cleaned payload ` +
                         `(${storageError?.message || 'unknown error'}). Retrying with compact payload.`
                     );
-                    const minimalProposalData = { ...proposalData };
-                    if (minimalProposalData.proposal) {
-                        delete minimalProposalData.proposal.screeningAnswers;
-                    }
-                    if (minimalProposalData.jobPost) {
-                        delete minimalProposalData.jobPost.jobPrompt;
-                    }
-                    proposals[proposals.length - 1] = minimalProposalData;
+                    updateLatestProposal(buildCompactProposalData(proposalData));
                     await chrome.storage.local.set({ proposals });
-                    if (proposalData.proposal) {
-                        delete proposalData.proposal.screeningAnswers;
-                    }
-                    if (proposalData.jobPost) {
-                        delete proposalData.jobPost.jobPrompt;
-                    }
-                    debugLog(`[Proposal] ${linkData.href}: saved using compact payload.`);
+                    debugLog(`[Proposal] ${linkData.href}: saved with compact grouped payload.`);
                 }
             }
+
             existingUrls.add(linkData.href);
-            
+
             tableData.push(proposalData);
             debugLog(`[Proposal] ${linkData.href}: complete.`);
-            
+
             return {
                 description,
                 coverLetter
             };
         } catch (error) {
+            recordError('proposal_visit_exception', {
+                message: error?.message || 'unexpected proposal visit failure',
+                sourceUrl: linkData?.href || 'unknown-url'
+            });
             console.error('Error visiting proposal:', linkData.href, error);
             return null;
         }
@@ -1315,8 +1714,12 @@ async function scrapeProposals(options = {}) {
                     action: 'Opening proposals'
                 });
                 await visitProposalPage(link);
+                runMetrics.processedItems += 1;
+                updateStatus();
                 await new Promise(resolve => setTimeout(resolve, 2000));
             }
+            runMetrics.completedPages += 1;
+            runMetrics.observedItemsInPages += links.length;
 
             // Re-read pagination from the live DOM in case Upwork re-rendered the section.
             const latestPageState = scrapeCurrentPage();
@@ -1359,19 +1762,28 @@ async function scrapeProposals(options = {}) {
             }
         }
 
-        updateStatus({ action: 'All done! Closing in 3 seconds...' });
+        const completionDelayMs = errorState.total > 0 ? 8000 : 3000;
+        updateStatus({
+            action: errorState.total > 0
+                ? `All done with ${errorState.total} tracked errors. Closing in 8 seconds...`
+                : 'All done! Closing in 3 seconds...'
+        });
         debugLog('Finished processing all proposals');
         setTimeout(() => {
             statusPopup.remove();
-        }, 3000);
+        }, completionDelayMs);
 
     } catch (error) {
-        updateStatus({ action: `Error: ${error.message}` });
+        updateStatus({
+            action: `Error: ${error.message}${errorState.total > 0 ? ` (tracked errors: ${errorState.total})` : ''}`
+        });
         console.error('Scraping error:', error);
         setTimeout(() => {
             statusPopup.remove();
         }, 5000);
+    } finally {
+        await teardownSandboxBridge();
     }
 
     return allLinks;
-} 
+}
