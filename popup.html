@@ -4,7 +4,7 @@
   <style>
     body {
       width: 760px;
-      height: 620px;
+      min-height: 620px;
       padding: 24px;
       margin: 0;
       box-sizing: border-box;
@@ -31,6 +31,46 @@
       font-size: 14px;
       line-height: 1.5;
       color: #697386;
+    }
+
+    .tab-nav {
+      display: inline-flex;
+      gap: 8px;
+      padding: 6px;
+      background: #fff;
+      border: 1px solid #e6e8eb;
+      border-radius: 10px;
+      margin-bottom: 16px;
+    }
+
+    .tab-btn {
+      border: 1px solid transparent;
+      background: transparent;
+      color: #495057;
+      padding: 8px 12px;
+      font-size: 13px;
+      border-radius: 8px;
+      font-weight: 600;
+    }
+
+    .tab-btn:hover {
+      transform: none;
+      background: #f8f9fa;
+      color: #1a1f36;
+    }
+
+    .tab-btn.active {
+      background: #ececff;
+      border-color: #d7d6ff;
+      color: #3d38ad;
+    }
+
+    .tab-panel {
+      display: none;
+    }
+
+    .tab-panel.active {
+      display: block;
     }
 
     .controls {
@@ -109,6 +149,18 @@
       background: #fff3cd;
       color: #856404;
       border: 1px solid #ffe8a1;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 14px;
+      display: none;
+    }
+
+    .info-warning {
+      background: #e9f5ff;
+      color: #0c5460;
+      border: 1px solid #b8e1f7;
       border-radius: 8px;
       padding: 8px 12px;
       font-size: 12px;
@@ -215,39 +267,93 @@
 <body>
   <div class="hero">
     <h1>Proposal Scraper</h1>
-    <p>Collect your Upwork proposals and inspect the exact stored JSON.</p>
+    <p>Collect archived proposals or scrape a single live job post page.</p>
   </div>
 
   <div id="authWarning" class="auth-warning">Please sign in to Upwork first.</div>
 
-  <div class="controls">
-    <div class="control-left">
-      <button id="startScraping">Start Scraping</button>
-      <button id="clearData" class="clear-btn">Clear Data</button>
-    </div>
-    <div class="control-right">
-      <label for="scrapeMode">Mode</label>
-      <select id="scrapeMode" class="mode-select">
-        <option value="successful">Successful only</option>
-        <option value="all">All proposals</option>
-      </select>
-    </div>
+  <div class="tab-nav">
+    <button id="tabProposals" class="tab-btn active" data-tab="proposalsPanel">Historical Proposals</button>
+    <button id="tabJobPosts" class="tab-btn" data-tab="jobPostsPanel">Current Job Post</button>
   </div>
 
-  <div class="data-preview">
-    <div class="data-preview-header">
-      <div class="data-preview-title">Scraped Proposals (<span id="proposalCount">0</span>)</div>
-    </div>
-    <p class="subtle-note">Fields: title, status, submitted at, scraped at, job description, cover letter, proposal URL.</p>
-    <div class="raw-json-toolbar">
-      <span>Exact stored payload</span>
-      <div class="toolbar-actions">
-        <button id="downloadRawJson" class="copy-json-btn">Download JSON</button>
-        <button id="copyRawJson" class="copy-json-btn">Copy JSON</button>
+  <section id="proposalsPanel" class="tab-panel active">
+    <div class="controls">
+      <div class="control-left">
+        <button id="startListScraping">Scrape List Only</button>
+        <button id="startScraping">Scrape Details (Use Saved List)</button>
+        <button id="clearData" class="clear-btn">Clear Data</button>
+      </div>
+      <div class="control-right">
+        <label for="scrapeMode">Mode</label>
+        <select id="scrapeMode" class="mode-select">
+          <option value="successful">Successful only</option>
+          <option value="all">All proposals</option>
+        </select>
       </div>
     </div>
-    <textarea id="rawJsonOutput" class="raw-json" readonly></textarea>
-  </div>
+
+    <div class="data-preview">
+      <div class="data-preview-header">
+        <div class="data-preview-title">Archived Proposal List (<span id="proposalListCount">0</span>)</div>
+      </div>
+      <p class="subtle-note">Step 1 output. Lightweight list from archived proposals page.</p>
+      <div class="raw-json-toolbar">
+        <span>Exact stored payload</span>
+        <div class="toolbar-actions">
+          <button id="clearProposalList" class="copy-json-btn">Clear</button>
+          <button id="downloadProposalListJson" class="copy-json-btn">Download JSON</button>
+          <button id="copyProposalListJson" class="copy-json-btn">Copy JSON</button>
+        </div>
+      </div>
+      <textarea id="proposalListJsonOutput" class="raw-json" readonly></textarea>
+    </div>
+
+    <div class="data-preview" style="margin-top: 12px;">
+      <div class="data-preview-header">
+        <div class="data-preview-title">Detailed Proposals (<span id="proposalCount">0</span>)</div>
+      </div>
+      <p class="subtle-note">Step 2 output. Built from saved archived list entries.</p>
+      <div class="raw-json-toolbar">
+        <span>Exact stored payload</span>
+        <div class="toolbar-actions">
+          <button id="downloadRawJson" class="copy-json-btn">Download JSON</button>
+          <button id="copyRawJson" class="copy-json-btn">Copy JSON</button>
+        </div>
+      </div>
+      <textarea id="rawJsonOutput" class="raw-json" readonly></textarea>
+    </div>
+  </section>
+
+  <section id="jobPostsPanel" class="tab-panel">
+    <div id="jobPageWarning" class="info-warning">Open a page like upwork.com/jobs/... in the active tab to scrape a job post.</div>
+
+    <div class="controls">
+      <div class="control-left">
+        <button id="startJobScraping">Start Scraping</button>
+        <button id="clearJobPosts" class="clear-btn">Clear Data</button>
+      </div>
+      <div class="control-right">
+        <span>Source</span>
+        <span>Current active tab</span>
+      </div>
+    </div>
+
+    <div class="data-preview">
+      <div class="data-preview-header">
+        <div class="data-preview-title">Scraped Job Posts (<span id="jobPostCount">0</span>)</div>
+      </div>
+      <p class="subtle-note">Saved from the currently opened Upwork job page URL.</p>
+      <div class="raw-json-toolbar">
+        <span>Exact stored payload</span>
+        <div class="toolbar-actions">
+          <button id="downloadJobJson" class="copy-json-btn">Download JSON</button>
+          <button id="copyJobJson" class="copy-json-btn">Copy JSON</button>
+        </div>
+      </div>
+      <textarea id="jobRawJsonOutput" class="raw-json" readonly></textarea>
+    </div>
+  </section>
 
   <script src="popup.js"></script>
 </body>
