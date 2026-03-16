@@ -1,7 +1,7 @@
 // Upwork panel logic — loaded dynamically when the Upwork site tab is active.
-// This is the original popup.js logic, wrapped in an IIFE for clean scoping.
+// This is the original popup.js logic, exposed via a mount function.
 
-(function initUpworkPanel() {
+window.mountUpworkPanel = function() {
     const UPWORK_JOB_POST_URL_PATTERN = /^https:\/\/www\.upwork\.com\/jobs\/[^/?#]+/i;
     const POPUP_SUBTAB_STORAGE_KEY = 'upworkActiveSubTab';
 
@@ -620,4 +620,4 @@
     initializeUpworkPanel().catch((error) => {
         console.error('Upwork panel initialization failed:', error);
     });
-})();
+};
