@@ -4,12 +4,12 @@
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action === 'startTiktokCommentScraping') {
-        handleTiktokCommentScraping(sendResponse);
+        handleTiktokCommentScraping(message.maxLimit, sendResponse);
         return true; // Keep message channel open for async response
     }
 });
 
-async function handleTiktokCommentScraping(sendResponse) {
+async function handleTiktokCommentScraping(maxLimit, sendResponse) {
     try {
         const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if (!activeTab || !activeTab.id || !activeTab.url || !activeTab.url.includes('tiktok.com')) {
@@ -17,10 +17,21 @@ async function handleTiktokCommentScraping(sendResponse) {
             return;
         }
 
-        // Inject the content script
+        // Inject the content script, passing the target limit
         const [result] = await chrome.scripting.executeScript({
             target: { tabId: activeTab.id },
             files: ['sites/tiktok/injected/scrape-comments.js']
+        });
+        
+        // After injection, we need to send a message to the newly injected script to start it with args
+        const scraperResponse = await new Promise((resolve) => {
+            chrome.tabs.sendMessage(activeTab.id, { action: 'runTiktokScraper', maxLimit }, (response) => {
+                if (chrome.runtime.lastError) {
+                    resolve({ success: false, error: chrome.runtime.lastError.message });
+                } else {
+                    resolve(response);
+                }
+            });
         });
 
         const scraperResponse = result?.result;

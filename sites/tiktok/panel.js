@@ -12,6 +12,7 @@ window.mountTiktokPanel = function() {
     const countEl = document.getElementById('tiktokCommentCount');
     const textareaEl = document.getElementById('tiktokJsonOutput');
     const statusEl = document.getElementById('tiktokStatusHeadline');
+    const limitEl = document.getElementById('tiktokScrapeLimit');
 
     let isJsonLoaded = false;
 
@@ -66,9 +67,10 @@ window.mountTiktokPanel = function() {
                 
                 if (warningEl) warningEl.style.display = 'none';
                 if (statusEl) statusEl.textContent = 'Scraping comments...';
+                const maxLimit = parseInt(limitEl.value, 10) || 50;
                 
                 // Send message to background
-                chrome.runtime.sendMessage({ action: 'startTiktokCommentScraping' }, (response) => {
+                chrome.runtime.sendMessage({ action: 'startTiktokCommentScraping', maxLimit }, (response) => {
                     if (chrome.runtime.lastError) {
                         console.error('Scrape error:', chrome.runtime.lastError);
                         if (statusEl) statusEl.textContent = 'Error: ' + chrome.runtime.lastError.message;
