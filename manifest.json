@@ -42,6 +42,14 @@
       "matches": [
         "https://www.upwork.com/*"
       ]
+    },
+    {
+      "resources": [
+        "sites/tiktok/injected/scrape-comments.js"
+      ],
+      "matches": [
+        "https://www.tiktok.com/*"
+      ]
     }
   ],
   "sandbox": {

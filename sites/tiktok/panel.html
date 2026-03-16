@@ -1,6 +1,31 @@
-<!-- TikTok site panel - placeholder -->
-<div class="coming-soon">
-  <div class="coming-soon-icon">🎵</div>
-  <h2>TikTok Scraper</h2>
-  <p>Coming soon — TikTok data scraping will be available in a future update.</p>
+<div id="authWarningTiktok" class="info-warning" style="display: none;">Open a TikTok video page to scrape comments.</div>
+
+<div class="controls">
+  <div class="control-left">
+    <button id="startTiktokScraping">Scrape Current Page Comments</button>
+    <button id="clearTiktokData" class="clear-btn">Clear Data</button>
+  </div>
+</div>
+
+<div class="data-preview" style="margin-bottom: 12px;">
+  <div class="data-preview-header">
+    <div class="data-preview-title">Scrape Status</div>
+  </div>
+  <p class="subtle-note" id="tiktokStatusHeadline">Ready.</p>
+</div>
+
+<div class="data-preview">
+  <div class="data-preview-header">
+    <div class="data-preview-title">TikTok Comments (<span id="tiktokCommentCount">0</span>)</div>
+  </div>
+  <p class="subtle-note">Captured from the active TikTok video page.</p>
+  <div class="raw-json-toolbar">
+    <span>Exact stored payload</span>
+    <div class="toolbar-actions">
+      <button id="loadTiktokJson" class="copy-json-btn">Load JSON</button>
+      <button id="downloadTiktokJson" class="copy-json-btn">Download JSON</button>
+      <button id="copyTiktokJson" class="copy-json-btn">Copy JSON</button>
+    </div>
+  </div>
+  <textarea id="tiktokJsonOutput" class="raw-json" readonly></textarea>
 </div>
