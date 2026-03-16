@@ -1,10 +1,13 @@
-const ARCHIVED_PROPOSALS_URL = 'https://www.upwork.com/nx/proposals/archived';
-const UPWORK_ROOT_URL = 'https://www.upwork.com/';
-const DEFAULT_SCRAPE_MODE = 'successful';
+/**
+ * Shared utilities used across all site modules.
+ */
 
-function normalizeScrapeMode(mode) {
-    return mode === 'all' ? 'all' : DEFAULT_SCRAPE_MODE;
-}
+const SITE_REGISTRY = [
+    { id: 'upwork', label: 'Upwork', icon: '💼' },
+    { id: 'tiktok', label: 'TikTok', icon: '🎵' }
+];
+
+const ACTIVE_SITE_STORAGE_KEY = 'activeSiteTab';
 
 function waitForTabReady(tabId, expectedUrl) {
     return new Promise((resolve, reject) => {
@@ -25,7 +28,7 @@ function waitForTabReady(tabId, expectedUrl) {
 
         timeoutId = setTimeout(() => {
             cleanup();
-            reject(new Error('Timed out waiting for the archived proposals page to load.'));
+            reject(new Error('Timed out waiting for the page to load.'));
         }, 45000);
 
         chrome.tabs.onUpdated.addListener(onUpdated);

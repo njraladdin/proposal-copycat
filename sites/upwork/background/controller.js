@@ -1,8 +1,8 @@
 const INJECTED_SCRAPER_HELPER_FILES = [
-    'background/injected/job-post-page.js'
+    'sites/upwork/injected/job-post-page.js'
 ];
 const MAIN_WORLD_SCRAPER_HELPER_FILES = [
-    'background/injected/proposals-network-monitor.js'
+    'sites/upwork/injected/proposals-network-monitor.js'
 ];
 
 const DEBUGGER_ENABLED_FOR_LIST_SCRAPE = true;

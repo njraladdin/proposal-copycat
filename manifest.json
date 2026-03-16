@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Proposal Copycat - AI Trained on Your Upwork Proposals",
-  "version": "1.0",
-  "description": "Train AI to write Upwork proposals in your style by analyzing your successful past proposals.",
+  "name": "Data Scraper",
+  "version": "1.1",
+  "description": "Multi-site data extraction tool. Scrape structured data from Upwork, TikTok, and more.",
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
@@ -17,13 +17,27 @@
     "unlimitedStorage"
   ],
   "host_permissions": [
-    "https://www.upwork.com/*"
+    "https://www.upwork.com/*",
+    "https://www.tiktok.com/*"
   ],
   "web_accessible_resources": [
     {
       "resources": [
         "sandbox.html",
-        "sandbox.js"
+        "sandbox.js",
+        "sites/upwork/panel.html",
+        "sites/upwork/panel.js",
+        "sites/tiktok/panel.html",
+        "sites/tiktok/panel.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    },
+    {
+      "resources": [
+        "sites/upwork/injected/job-post-page.js",
+        "sites/upwork/injected/proposals-network-monitor.js"
       ],
       "matches": [
         "https://www.upwork.com/*"
@@ -36,7 +50,7 @@
     ]
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self';",
+    "extension_pages": "script-src 'self' 'unsafe-eval'; object-src 'self';",
     "sandbox": "sandbox allow-scripts; script-src 'self' 'unsafe-eval'; object-src 'self';"
   },
   "action": {
@@ -45,4 +59,4 @@
   "background": {
     "service_worker": "background.js"
   }
-} 
+}

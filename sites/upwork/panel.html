@@ -1,0 +1,123 @@
+<!-- Upwork site panel - loaded dynamically into popup shell -->
+<div id="authWarning" class="auth-warning">Please sign in to Upwork first.</div>
+
+<div class="site-tab-nav">
+  <button id="tabProposals" class="site-tab-btn active" data-tab="proposalsPanel">Proposals</button>
+  <button id="tabJobPosts" class="site-tab-btn" data-tab="jobPostsPanel">Job Posts</button>
+</div>
+
+<section id="proposalsPanel" class="site-tab-panel active">
+  <div class="controls">
+    <div class="control-left">
+      <button id="startListScraping">1) Capture Proposal List</button>
+      <button id="startScraping">2) Capture Proposal Details</button>
+      <button id="clearData" class="clear-btn">Clear Proposal Data</button>
+    </div>
+    <div class="control-right">
+      <label for="scrapeMode">Mode</label>
+      <select id="scrapeMode" class="mode-select">
+        <option value="successful">Successful only</option>
+        <option value="all">All proposals</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="data-preview" style="margin-bottom: 12px;">
+    <div class="data-preview-header">
+      <div class="data-preview-title">Step 2 Run Status</div>
+    </div>
+    <p class="subtle-note" id="detailsStatusHeadline">No recent run summary yet.</p>
+    <div class="raw-json-toolbar">
+      <span id="detailsStatusCounts">Progress: -</span>
+      <span id="detailsStatusEta">ETA: -</span>
+    </div>
+    <div class="raw-json-toolbar" style="margin-top: 4px;">
+      <span id="detailsStatusCurrent">Current: -</span>
+      <span id="detailsStatusTimes">Started: -</span>
+    </div>
+  </div>
+
+  <div class="data-preview">
+    <div class="data-preview-header">
+      <div class="data-preview-title">Step 1: Proposal List (<span id="proposalListCount">0</span>)</div>
+    </div>
+    <p class="subtle-note">Captured from archived proposals pagination.</p>
+    <div class="raw-json-toolbar">
+      <span>Exact stored payload</span>
+      <div class="toolbar-actions">
+        <button id="loadProposalListJson" class="copy-json-btn">Load JSON</button>
+        <button id="clearProposalList" class="copy-json-btn">Clear</button>
+        <button id="downloadProposalListJson" class="copy-json-btn">Download JSON</button>
+        <button id="copyProposalListJson" class="copy-json-btn">Copy JSON</button>
+      </div>
+    </div>
+    <textarea id="proposalListJsonOutput" class="raw-json" readonly></textarea>
+  </div>
+
+  <div class="data-preview" style="margin-top: 12px;">
+    <div class="data-preview-header">
+      <div class="data-preview-title">Step 2: Proposal Details (<span id="proposalCount">0</span>)</div>
+    </div>
+    <p class="subtle-note">Built from saved proposal list entries via details capture.</p>
+    <div class="raw-json-toolbar">
+      <span>Exact stored payload</span>
+      <div class="toolbar-actions">
+        <button id="loadRawJson" class="copy-json-btn">Load JSON</button>
+        <button id="clearProposalDetails" class="copy-json-btn">Clear</button>
+        <button id="downloadRawJson" class="copy-json-btn">Download JSON</button>
+        <button id="copyRawJson" class="copy-json-btn">Copy JSON</button>
+      </div>
+    </div>
+    <textarea id="rawJsonOutput" class="raw-json" readonly></textarea>
+  </div>
+</section>
+
+<section id="jobPostsPanel" class="site-tab-panel">
+  <div id="jobPageWarning" class="info-warning">Open a page like upwork.com/jobs/... to use "Scrape Active Job Page".</div>
+
+  <div class="controls">
+    <div class="control-left">
+      <button id="startJobScraping">Scrape Active Job Page</button>
+      <button id="startJobFromListScraping">3) Scrape From Saved Proposals</button>
+      <button id="repairSavedJobUrls" class="clear-btn">Repair Saved URLs</button>
+      <button id="clearCurrentJobPost" class="clear-btn">Clear Active Job Data</button>
+      <button id="clearJobPosts" class="clear-btn">Clear Saved Job Data</button>
+    </div>
+    <div class="control-right">
+      <span>Input</span>
+      <span>Active tab or saved proposal details</span>
+    </div>
+  </div>
+
+  <div class="data-preview">
+    <div class="data-preview-header">
+      <div class="data-preview-title">Active Job Page (<span id="activeJobPostCount">0</span>)</div>
+    </div>
+    <p class="subtle-note">Single-job payload captured from the active Upwork job page only.</p>
+    <div class="raw-json-toolbar">
+      <span>Exact stored payload</span>
+      <div class="toolbar-actions">
+        <button id="loadActiveJobJson" class="copy-json-btn">Load JSON</button>
+        <button id="downloadActiveJobJson" class="copy-json-btn">Download JSON</button>
+        <button id="copyActiveJobJson" class="copy-json-btn">Copy JSON</button>
+      </div>
+    </div>
+    <textarea id="activeJobJsonOutput" class="raw-json" readonly></textarea>
+  </div>
+
+  <div class="data-preview" style="margin-top: 12px;">
+    <div class="data-preview-header">
+      <div class="data-preview-title">Step 3: Saved Proposal Job Posts (<span id="jobPostCount">0</span>)</div>
+    </div>
+    <p class="subtle-note">Batch job-post payloads captured from saved proposal details.</p>
+    <div class="raw-json-toolbar">
+      <span>Exact stored payload</span>
+      <div class="toolbar-actions">
+        <button id="loadJobJson" class="copy-json-btn">Load JSON</button>
+        <button id="downloadJobJson" class="copy-json-btn">Download JSON</button>
+        <button id="copyJobJson" class="copy-json-btn">Copy JSON</button>
+      </div>
+    </div>
+    <textarea id="jobRawJsonOutput" class="raw-json" readonly></textarea>
+  </div>
+</section>
