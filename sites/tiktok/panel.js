@@ -4,6 +4,7 @@ window.mountTiktokPanel = function() {
     
     // UI Elements
     const btnScrape = document.getElementById('startTiktokScraping');
+    const btnStopScrape = document.getElementById('stopTiktokScraping');
     const btnClear = document.getElementById('clearTiktokData');
     const btnLoad = document.getElementById('loadTiktokJson');
     const btnDownload = document.getElementById('downloadTiktokJson');
@@ -56,7 +57,6 @@ window.mountTiktokPanel = function() {
     // Event Listeners
     if (btnScrape) {
         btnScrape.addEventListener('click', async () => {
-            // Check if active tab is TikTok
             try {
                 const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
                 if (!activeTab || !activeTab.url || !activeTab.url.includes('tiktok.com')) {
@@ -66,23 +66,24 @@ window.mountTiktokPanel = function() {
                 }
                 
                 if (warningEl) warningEl.style.display = 'none';
-                if (statusEl) statusEl.textContent = 'Scraping comments...';
+                
                 const maxLimit = parseInt(limitEl.value, 10) || 50;
+                await chrome.storage.local.set({ tiktokIsMonitoring: true, tiktokMaxLimit: maxLimit });
                 
                 // Send message to background
-                chrome.runtime.sendMessage({ action: 'startTiktokCommentScraping', maxLimit }, (response) => {
-                    if (chrome.runtime.lastError) {
-                        console.error('Scrape error:', chrome.runtime.lastError);
-                        if (statusEl) statusEl.textContent = 'Error: ' + chrome.runtime.lastError.message;
-                    } else if (response && response.error) {
-                        if (statusEl) statusEl.textContent = 'Error: ' + response.error;
-                    } else if (response && response.success) {
-                        if (statusEl) statusEl.textContent = `Success! Scraped ${response.count} comments.`;
-                    }
+                chrome.runtime.sendMessage({ action: 'startTiktokMonitor', maxLimit }, (response) => {
+                    if (chrome.runtime.lastError) console.error(chrome.runtime.lastError);
                 });
             } catch (err) {
                 console.error(err);
             }
+        });
+    }
+
+    if (btnStopScrape) {
+        btnStopScrape.addEventListener('click', async () => {
+            await chrome.storage.local.set({ tiktokIsMonitoring: false });
+            chrome.runtime.sendMessage({ action: 'stopTiktokMonitor' });
         });
     }
 
@@ -136,27 +137,49 @@ window.mountTiktokPanel = function() {
 
     // Listen for storage changes
     chrome.storage.onChanged.addListener((changes, namespace) => {
-        if (namespace === 'local' && changes[STORAGE_KEY]) {
-            if (countEl) {
-                const items = Array.isArray(changes[STORAGE_KEY].newValue) ? changes[STORAGE_KEY].newValue : [];
-                countEl.textContent = String(items.length);
+        if (namespace === 'local') {
+            if (changes[STORAGE_KEY]) {
+                if (countEl) {
+                    const items = Array.isArray(changes[STORAGE_KEY].newValue) ? changes[STORAGE_KEY].newValue : [];
+                    countEl.textContent = String(items.length);
+                }
+                if (isJsonLoaded) {
+                    isJsonLoaded = false;
+                    if (textareaEl) textareaEl.value = 'Data changed. Click "Load JSON" to refresh.';
+                }
             }
-            if (isJsonLoaded) {
-                isJsonLoaded = false;
-                if (textareaEl) textareaEl.value = 'Data changed. Click "Load JSON" to refresh.';
+            if (changes.tiktokIsMonitoring) {
+                syncUIState(changes.tiktokIsMonitoring.newValue);
+            }
+            if (changes.tiktokMonitorStatus) {
+                if (statusEl) statusEl.textContent = changes.tiktokMonitorStatus.newValue;
             }
         }
     });
+
+    function syncUIState(isMonitoring) {
+        if (isMonitoring) {
+            if (btnScrape) btnScrape.style.display = 'none';
+            if (btnStopScrape) btnStopScrape.style.display = 'inline-block';
+            if (statusEl) statusEl.textContent = 'Monitoring... scroll comments down manually.';
+        } else {
+            if (btnScrape) btnScrape.style.display = 'inline-block';
+            if (btnStopScrape) btnStopScrape.style.display = 'none';
+            if (statusEl && statusEl.textContent.includes('Monitoring')) statusEl.textContent = 'Stopped.';
+        }
+    }
 
     // Init
     async function init() {
         if (textareaEl) textareaEl.value = 'JSON not loaded yet. Click "Load JSON".';
         
-        // Initial count check
+        // Initial state check
         try {
-            const data = await chrome.storage.local.get(STORAGE_KEY);
+            const data = await chrome.storage.local.get([STORAGE_KEY, 'tiktokIsMonitoring', 'tiktokMonitorStatus']);
             const items = Array.isArray(data[STORAGE_KEY]) ? data[STORAGE_KEY] : [];
             if (countEl) countEl.textContent = String(items.length);
+            syncUIState(data.tiktokIsMonitoring);
+            if (data.tiktokMonitorStatus && statusEl) statusEl.textContent = data.tiktokMonitorStatus;
         } catch (e) {
             console.error(e);
         }

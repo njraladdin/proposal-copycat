@@ -1,95 +1,79 @@
 /**
  * Content script injected into TikTok to extract comments.
- * It listens for a message to start scraping, then scrolls the comment container
- * to load more comments until the requested limit is reached or no more load.
+ * It continually monitors the DOM on an interval and sends batches to the background.
  */
 
-// Only add listener if not already added to prevent duplicates on multiple injections
+// Global state to prevent duplicate injections
 if (!window._tiktokScraperListenerAdded) {
     window._tiktokScraperListenerAdded = true;
+    window._tiktokMonitorIntervalId = null;
+    window._tiktokScrapedSet = new Set(); // Local Set to avoid sending redundant comments over message passing repeatedly
 
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-        if (message.action === 'runTiktokScraper') {
-            runScraper(message.maxLimit || 50).then(sendResponse);
-            return true; // async response
+        if (message.action === 'pingTiktokScraper') {
+            sendResponse({ ready: true });
+        } else if (message.action === 'startMonitorLoop') {
+            startMonitoring(message.maxLimit);
+            sendResponse({ started: true });
+        } else if (message.action === 'stopMonitorLoop') {
+            stopMonitoring();
+            sendResponse({ stopped: true });
         }
     });
 }
 
-async function runScraper(maxLimit) {
-    console.log(`[TikTok Scraper] Starting extraction (limit: ${maxLimit})...`);
+function startMonitoring(maxLimit) {
+    console.log(`[TikTok Scraper] Starting DOM monitor loop (limit: ${maxLimit})...`);
+    stopMonitoring(); // Clear any existing
+    window._tiktokScrapedSet.clear();
 
+    // Poll the DOM every 1000ms
+    window._tiktokMonitorIntervalId = setInterval(() => {
+        extractAndSendComments(maxLimit);
+    }, 1000);
+    
+    // Initial run immediately
+    extractAndSendComments(maxLimit);
+}
+
+function stopMonitoring() {
+    if (window._tiktokMonitorIntervalId) {
+        clearInterval(window._tiktokMonitorIntervalId);
+        window._tiktokMonitorIntervalId = null;
+        console.log('[TikTok Scraper] Monitoring stopped.');
+    }
+}
+
+function extractAndSendComments(maxLimit) {
     try {
-        const scrapedCommentsMap = new Map(); // Use map to deduplicate by username+text
-        let previousCount = 0;
-        let noNewItemsLoops = 0;
-        const MAX_IDLE_LOOPS = 5; // Give up if we scroll 5 times and get no new items
+        const commentWrappers = Array.from(document.querySelectorAll('div[class*="DivCommentItemWrapper"], div.epprvxn0'));
+        const newCommentsBatch = [];
 
-        // The container that scrolls is usually the list container
-        // Based on user snippet: .css-1i2ou4d-7937d88b--DivCommentListContainer
-        const getListContainer = () => document.querySelector('div[class*="DivCommentListContainer"]') || document.documentElement;
-
-        while (scrapedCommentsMap.size < maxLimit && noNewItemsLoops < MAX_IDLE_LOOPS) {
-            
-            // 1. Extract current DOM comments
-            const commentWrappers = Array.from(document.querySelectorAll('div[class*="DivCommentItemWrapper"], div.epprvxn0'));
-            
-            for (const wrapper of commentWrappers) {
-                if (scrapedCommentsMap.size >= maxLimit) break;
-
-                const commentData = extractCommentData(wrapper);
-                if (commentData && (commentData.username || commentData.commentText)) {
-                    // Create a unique key for deduplication
-                    const hashKey = `${commentData.username}:::${commentData.commentText}`;
-                    if (!scrapedCommentsMap.has(hashKey)) {
-                        scrapedCommentsMap.set(hashKey, commentData);
-                    }
+        for (const wrapper of commentWrappers) {
+            const commentData = extractCommentData(wrapper);
+            if (commentData && (commentData.username || commentData.commentText)) {
+                
+                const hashKey = `${commentData.username}:::${commentData.commentText}`;
+                
+                // If we haven't sent this exact comment back to the background script yet
+                if (!window._tiktokScrapedSet.has(hashKey)) {
+                    window._tiktokScrapedSet.add(hashKey);
+                    newCommentsBatch.push(commentData);
                 }
             }
-
-            // 2. Check if we reached the limit
-            if (scrapedCommentsMap.size >= maxLimit) {
-                console.log(`[TikTok Scraper] Reached requested limit of ${maxLimit}.`);
-                break;
-            }
-
-            // 3. Scroll to load more
-            const container = getListContainer();
-            const currentCount = scrapedCommentsMap.size;
-            
-            if (currentCount === previousCount) {
-                noNewItemsLoops++;
-            } else {
-                noNewItemsLoops = 0;
-            }
-            previousCount = currentCount;
-
-            // Scroll down
-            if (container === document.documentElement) {
-                window.scrollTo(0, document.body.scrollHeight);
-            } else {
-                container.scrollTop = container.scrollHeight;
-            }
-
-            // Wait for network/DOM to update
-            await new Promise(resolve => setTimeout(resolve, 1500));
         }
 
-        const results = Array.from(scrapedCommentsMap.values());
-        console.log(`[TikTok Scraper] Finished. Extracted ${results.length} unique comments.`);
-
-        return {
-            success: true,
-            count: results.length,
-            comments: results
-        };
+        // Send batch to background script for storage and global deduplication
+        if (newCommentsBatch.length > 0) {
+            chrome.runtime.sendMessage({ 
+                action: 'tiktokCommentsBatch', 
+                comments: newCommentsBatch,
+                maxLimit: maxLimit 
+            });
+        }
 
     } catch (err) {
-        console.error('[TikTok Scraper] Error scraping:', err);
-        return {
-            success: false,
-            error: err.toString()
-        };
+        console.error('[TikTok Scraper] Error in monitor loop:', err);
     }
 }
 

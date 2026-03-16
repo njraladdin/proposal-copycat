@@ -3,51 +3,96 @@
  */
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.action === 'startTiktokCommentScraping') {
-        handleTiktokCommentScraping(message.maxLimit, sendResponse);
+    if (message.action === 'startTiktokMonitor') {
+        handleStartTiktokMonitor(message.maxLimit, sendResponse);
         return true; // Keep message channel open for async response
+    } else if (message.action === 'stopTiktokMonitor') {
+        handleStopTiktokMonitor();
+        sendResponse({ success: true });
+    } else if (message.action === 'tiktokCommentsBatch') {
+        handleIncomingComments(message.comments, message.maxLimit);
+        // Optional to sendResponse back
     }
 });
 
-async function handleTiktokCommentScraping(maxLimit, sendResponse) {
+async function handleStartTiktokMonitor(maxLimit, sendResponse) {
     try {
         const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if (!activeTab || !activeTab.id || !activeTab.url || !activeTab.url.includes('tiktok.com')) {
+            await chrome.storage.local.set({ 
+                tiktokIsMonitoring: false, 
+                tiktokMonitorStatus: 'Error: Active tab is not a TikTok page.' 
+            });
             sendResponse({ success: false, error: 'Active tab is not a TikTok page.' });
             return;
         }
 
-        // Inject the content script, passing the target limit
-        const [result] = await chrome.scripting.executeScript({
-            target: { tabId: activeTab.id },
-            files: ['sites/tiktok/injected/scrape-comments.js']
-        });
-        
-        // After injection, we need to send a message to the newly injected script to start it with args
-        const scraperResponse = await new Promise((resolve) => {
-            chrome.tabs.sendMessage(activeTab.id, { action: 'runTiktokScraper', maxLimit }, (response) => {
-                if (chrome.runtime.lastError) {
-                    resolve({ success: false, error: chrome.runtime.lastError.message });
-                } else {
-                    resolve(response);
-                }
-            });
-        });
-
-        if (!scraperResponse || !scraperResponse.success) {
-            sendResponse({ success: false, error: scraperResponse?.error || 'Failed to extract comments.' });
-            return;
+        // Send a test message to see if the content script is already injected
+        let isAlreadyInjected = false;
+        try {
+            await chrome.tabs.sendMessage(activeTab.id, { action: 'pingTiktokScraper' });
+            isAlreadyInjected = true;
+        } catch (e) {
+            // Script not injected or not responsive
+            isAlreadyInjected = false;
         }
 
-        // Save to storage
+        if (!isAlreadyInjected) {
+            // Inject the content script
+            await chrome.scripting.executeScript({
+                target: { tabId: activeTab.id },
+                files: ['sites/tiktok/injected/scrape-comments.js']
+            });
+        }
+
+        // Start the monitoring loop in the content script
+        chrome.tabs.sendMessage(activeTab.id, { action: 'startMonitorLoop', maxLimit }, () => {
+             if (chrome.runtime.lastError) console.error(chrome.runtime.lastError);
+        });
+
+        await chrome.storage.local.set({ tiktokMonitorStatus: 'Monitoring... scroll comments down manually.' });
+        sendResponse({ success: true });
+
+    } catch (error) {
+        console.error('[TikTok Controller] Error starting monitor:', error);
+        await chrome.storage.local.set({ 
+            tiktokIsMonitoring: false, 
+            tiktokMonitorStatus: 'Error: ' + error.message 
+        });
+        sendResponse({ success: false, error: error.toString() });
+    }
+}
+
+async function handleStopTiktokMonitor() {
+    await chrome.storage.local.set({ 
+        tiktokIsMonitoring: false, 
+        tiktokMonitorStatus: 'Stopped.' 
+    });
+    
+    // Stop loop in the active tab
+    try {
+        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (activeTab && activeTab.id) {
+            chrome.tabs.sendMessage(activeTab.id, { action: 'stopMonitorLoop' }, () => {
+                if (chrome.runtime.lastError) {} // Ignore
+            });
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function handleIncomingComments(newComments, maxLimit) {
+    try {
+        const isMonitoringObj = await chrome.storage.local.get('tiktokIsMonitoring');
+        if (!isMonitoringObj.tiktokIsMonitoring) return; // Discard if stopped
+
         const storageData = await chrome.storage.local.get('tiktokComments');
         const existingComments = Array.isArray(storageData.tiktokComments) ? storageData.tiktokComments : [];
         
-        // Prepend new comments (avoiding exact duplicates where possible by checking username + text combo)
-        const newComments = scraperResponse.comments;
-        const dedupedList = [...existingComments];
-        
+        let dedupedList = [...existingComments];
         let addedCount = 0;
+
         for (const newC of newComments) {
             const isDuplicate = dedupedList.some(c => c.username === newC.username && c.commentText === newC.commentText);
             if (!isDuplicate) {
@@ -56,16 +101,24 @@ async function handleTiktokCommentScraping(maxLimit, sendResponse) {
             }
         }
 
-        await chrome.storage.local.set({ tiktokComments: dedupedList });
+        // Enforce max storage limit if we exceed it
+        if (dedupedList.length > maxLimit) {
+            dedupedList = dedupedList.slice(0, maxLimit);
+            // Auto stop since limit reached
+            await handleStopTiktokMonitor();
+            await chrome.storage.local.set({ 
+                tiktokMonitorStatus: `Stopped automatically after reaching limit of ${maxLimit} comments.` 
+            });
+        } else if (addedCount > 0) {
+           await chrome.storage.local.set({ 
+               tiktokMonitorStatus: `Harvested ${dedupedList.length} / ${maxLimit} comments... keep scrolling.` 
+           });
+        }
 
-        sendResponse({ 
-            success: true, 
-            count: addedCount, 
-            total: dedupedList.length 
-        });
-
-    } catch (error) {
-        console.error('[TikTok Controller] Error querying tabs or parsing:', error);
-        sendResponse({ success: false, error: error.toString() });
+        if (addedCount > 0 || dedupedList.length !== existingComments.length) {
+            await chrome.storage.local.set({ tiktokComments: dedupedList });
+        }
+    } catch (err) {
+        console.error('Error handling incoming comments:', err);
     }
 }
