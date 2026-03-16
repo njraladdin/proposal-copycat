@@ -7,7 +7,8 @@
     const EVENT_TYPE = 'graphql-response';
     const TARGET_ALIAS = 'gql-query-proposalsbytype';
     const TARGET_ORIGIN = 'https://www.upwork.com';
-    const GRAPHQL_PATH_HINTS = ['/api/graphql/', '/shitake/suit'];
+    const GRAPHQL_PATH_HINTS = ['/api/graphql/'];
+    const VERBOSE_MONITOR_LOGS = false;
     const REQUEST_OPERATION_HINTS = [
         'gql-query-proposalsbytype',
         'proposalsbytype'
@@ -186,8 +187,11 @@
     };
 
     const logMonitorEvent = (payload) => {
+        if (!VERBOSE_MONITOR_LOGS && payload?.isTargetOperation !== true) {
+            return;
+        }
         const seq = Number(payload?.monitorSeq) || 0;
-        const shouldLog = seq <= 8 || seq % 20 === 0;
+        const shouldLog = VERBOSE_MONITOR_LOGS ? (seq <= 8 || seq % 20 === 0) : true;
         if (!shouldLog) {
             return;
         }

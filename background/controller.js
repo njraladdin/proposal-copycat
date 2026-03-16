@@ -9,13 +9,19 @@ const DEBUGGER_ENABLED_FOR_LIST_SCRAPE = true;
 const DEBUGGER_PROTOCOL_VERSION = '1.3';
 const DEBUGGER_TARGET_ORIGIN = 'https://www.upwork.com';
 const DEBUGGER_TARGET_PATH = '/api/graphql/v1';
-const DEBUGGER_TARGET_ALIAS = 'gql-query-proposalsbytype';
+const DEBUGGER_LIST_ALIAS = 'gql-query-proposalsbytype';
+const DEBUGGER_DETAILS_ALIAS = 'gql-query-get-auth-job-details';
 const DEBUGGER_GRAPHQL_PATH_PREFIX = '/api/graphql/';
 const DEBUGGER_LOG_PREFIX = '[ProposalCopycatDebugger]';
+const DEBUGGER_VERBOSE_LOGS = false;
+const DEBUGGER_DETAILS_RESPONSE_WAIT_MS = 12000;
+const DEBUGGER_DETAILS_INTER_ITEM_DELAY_MS = 250;
 
 const debuggerSessions = new Map();
 let debuggerListenersInstalled = false;
 let proposalListWriteQueue = Promise.resolve();
+let proposalDetailsWriteQueue = Promise.resolve();
+let proposalDetailsSummaryWriteQueue = Promise.resolve();
 
 function isReasonAllowedForMode(reason, scrapeMode) {
     if (scrapeMode === 'all') {
@@ -299,7 +305,20 @@ function isTargetGraphqlRequestUrl(urlValue) {
         return (
             url.origin === DEBUGGER_TARGET_ORIGIN &&
             url.pathname === DEBUGGER_TARGET_PATH &&
-            url.searchParams.get('alias') === DEBUGGER_TARGET_ALIAS
+            url.searchParams.get('alias') === DEBUGGER_LIST_ALIAS
+        );
+    } catch (error) {
+        return false;
+    }
+}
+
+function isTargetDetailsGraphqlRequestUrl(urlValue) {
+    try {
+        const url = new URL(String(urlValue || ''), DEBUGGER_TARGET_ORIGIN);
+        return (
+            url.origin === DEBUGGER_TARGET_ORIGIN &&
+            url.pathname === DEBUGGER_TARGET_PATH &&
+            url.searchParams.get('alias') === DEBUGGER_DETAILS_ALIAS
         );
     } catch (error) {
         return false;
@@ -326,6 +345,17 @@ function isLikelyProposalsGraphqlRequest(urlValue, postDataValue) {
         urlText.includes('gql-query-proposalsbytype') ||
         postData.includes('proposalsbytype') ||
         postData.includes('gql-query-proposalsbytype')
+    );
+}
+
+function isLikelyProposalDetailsGraphqlRequest(urlValue, postDataValue) {
+    const urlText = String(urlValue || '').toLowerCase();
+    const postData = String(postDataValue || '').toLowerCase();
+    return (
+        urlText.includes('get-auth-job-details') ||
+        urlText.includes(DEBUGGER_DETAILS_ALIAS) ||
+        postData.includes('get-auth-job-details') ||
+        postData.includes(DEBUGGER_DETAILS_ALIAS)
     );
 }
 
@@ -400,6 +430,40 @@ function queueProposalListUpsert(entries, sourceLabel) {
     return proposalListWriteQueue;
 }
 
+function queueProposalDetailsUpsert(detailEntry, sourceLabel) {
+    proposalDetailsWriteQueue = proposalDetailsWriteQueue
+        .then(() => upsertProposalDetailsEntry(detailEntry, sourceLabel))
+        .catch((error) => {
+            console.warn(`${DEBUGGER_LOG_PREFIX} failed to upsert proposal details:`, error);
+            return null;
+        });
+    return proposalDetailsWriteQueue;
+}
+
+function queueProposalDetailsSummaryUpdate(update, options = {}) {
+    proposalDetailsSummaryWriteQueue = proposalDetailsSummaryWriteQueue
+        .then(async () => {
+            const reset = options?.reset === true;
+            const storage = await chrome.storage.local.get('proposalDetailsCaptureSummary');
+            const previous = reset
+                ? {}
+                : (storage?.proposalDetailsCaptureSummary && typeof storage.proposalDetailsCaptureSummary === 'object'
+                    ? storage.proposalDetailsCaptureSummary
+                    : {});
+            const nextSummary = {
+                ...previous,
+                ...(update || {})
+            };
+            await chrome.storage.local.set({ proposalDetailsCaptureSummary: nextSummary });
+            return nextSummary;
+        })
+        .catch((error) => {
+            console.warn(`${DEBUGGER_LOG_PREFIX} failed to update proposal details summary:`, error);
+            return null;
+        });
+    return proposalDetailsSummaryWriteQueue;
+}
+
 async function upsertProposalListEntries(entries, sourceLabel = 'debugger') {
     const normalizedEntries = Array.isArray(entries) ? entries : [];
     if (!normalizedEntries.length) {
@@ -450,6 +514,439 @@ async function upsertProposalListEntries(entries, sourceLabel = 'debugger') {
     };
 }
 
+function extractExistingProposalHref(entry) {
+    return String(
+        entry?.proposalDetailsPage?.url ||
+        entry?.proposalListPage?.href ||
+        entry?.proposal?.proposalUrl ||
+        entry?.href ||
+        ''
+    ).trim();
+}
+
+function normalizeLinkData(linkData) {
+    const href = String(linkData?.href || '').trim();
+    if (!href) {
+        return null;
+    }
+    return {
+        href,
+        text: String(linkData?.text || '').trim(),
+        reason: String(linkData?.reason || '').trim(),
+        submissionTime: linkData?.submissionTime ?? null
+    };
+}
+
+function normalizeJobPostHref(rawValue) {
+    const value = String(rawValue || '').trim();
+    if (!value) {
+        return '';
+    }
+
+    if (/^https?:\/\//i.test(value)) {
+        return value;
+    }
+
+    if (/^\/jobs\//i.test(value)) {
+        return `${DEBUGGER_TARGET_ORIGIN}${value}`;
+    }
+
+    if (/^~0\d+/.test(value)) {
+        return `${DEBUGGER_TARGET_ORIGIN}/jobs/${value}`;
+    }
+
+    return '';
+}
+
+function deriveCiphertextFromOpeningId(rawValue) {
+    const value = String(rawValue || '').trim();
+    if (!/^\d{8,}$/.test(value)) {
+        return '';
+    }
+    return `~02${value}`;
+}
+
+function collectJobPostHrefCandidatesFromDetailsPayload(rawGraphql) {
+    const details = rawGraphql?.jobAuthDetails || rawGraphql || {};
+    const opening = details?.opening || {};
+    const jobDetails = details?.jobDetails || {};
+    const jobDetailsOpening = jobDetails?.opening || {};
+    const openingJob = opening?.job || jobDetailsOpening?.job || jobDetails?.job || {};
+    const openingInfo = opening?.info || openingJob?.info || jobDetailsOpening?.info || {};
+    const jobInfo = openingJob?.info || {};
+
+    const openingIdCandidates = [
+        opening?.id,
+        opening?.openingId,
+        opening?.openingUid,
+        openingInfo?.id,
+        openingJob?.id,
+        openingJob?.uid,
+        openingJob?.openingId,
+        openingJob?.openingUid,
+        jobInfo?.id,
+        details?.openingId,
+        details?.openingUid,
+        jobDetailsOpening?.id,
+        jobDetailsOpening?.openingId,
+        jobDetailsOpening?.openingUid
+    ]
+        .map((value) => deriveCiphertextFromOpeningId(value))
+        .filter(Boolean);
+
+    // All candidates are tied to this proposal's opening details.
+    return [
+        opening?.url,
+        opening?.jobPostUrl,
+        opening?.canonicalUrl,
+        openingInfo?.url,
+        openingJob?.url,
+        jobInfo?.url,
+        opening?.ciphertext,
+        opening?.jobCiphertext,
+        openingInfo?.ciphertext,
+        openingJob?.ciphertext,
+        jobInfo?.ciphertext,
+        jobDetailsOpening?.ciphertext,
+        jobDetailsOpening?.jobCiphertext,
+        ...openingIdCandidates
+    ];
+}
+
+function extractJobPostHrefFromDetailsPayload(rawGraphql) {
+    const candidates = collectJobPostHrefCandidatesFromDetailsPayload(rawGraphql);
+    for (const candidate of candidates) {
+        const normalized = normalizeJobPostHref(candidate);
+        if (normalized) {
+            return normalized;
+        }
+    }
+
+    return '';
+}
+
+function maybeSetNestedJobUrl(data, jobUrl) {
+    if (!data || typeof data !== 'object' || !jobUrl) {
+        return data;
+    }
+    if (!data.jobPost || typeof data.jobPost !== 'object') {
+        return data;
+    }
+    return {
+        ...data,
+        jobPost: {
+            ...data.jobPost,
+            url: jobUrl
+        }
+    };
+}
+
+async function repairSavedJobPostUrls() {
+    const storageData = await chrome.storage.local.get(['proposalList', 'proposals', 'jobPosts']);
+    const proposalList = Array.isArray(storageData.proposalList) ? storageData.proposalList : [];
+    const proposals = Array.isArray(storageData.proposals) ? storageData.proposals : [];
+    const jobPosts = Array.isArray(storageData.jobPosts) ? storageData.jobPosts : [];
+
+    if (!proposals.length) {
+        return {
+            proposalListCount: proposalList.length,
+            proposalsCount: 0,
+            proposalsWithRawGraphql: 0,
+            proposalsUpdated: 0,
+            proposalsDerivedUrlMissing: 0,
+            uniqueJobUrlsAfterRepair: 0,
+            jobPostsUpdated: 0
+        };
+    }
+
+    let proposalsWithRawGraphql = 0;
+    let proposalsUpdated = 0;
+    let proposalsDerivedUrlMissing = 0;
+    const proposalUrlFixes = new Map();
+    const repairedProposals = proposals.map((entry) => {
+        const rawGraphql = entry?.proposalDetailsPage?.rawGraphql;
+        if (rawGraphql != null) {
+            proposalsWithRawGraphql += 1;
+        }
+
+        const derivedJobUrl = extractJobPostHrefFromDetailsPayload(rawGraphql);
+        if (!derivedJobUrl) {
+            proposalsDerivedUrlMissing += 1;
+            return entry;
+        }
+
+        const currentDetailsUrl = normalizeJobPostHref(entry?.proposalDetailsPage?.jobPostHref);
+        const currentJobPageUrl = normalizeJobPostHref(entry?.jobPostPage?.url);
+        const needsUpdate = currentDetailsUrl !== derivedJobUrl || currentJobPageUrl !== derivedJobUrl;
+        if (!needsUpdate) {
+            return entry;
+        }
+
+        proposalsUpdated += 1;
+        const proposalHref = extractExistingProposalHref(entry);
+        if (proposalHref) {
+            proposalUrlFixes.set(proposalHref, derivedJobUrl);
+        }
+
+        return {
+            ...entry,
+            proposalDetailsPage: {
+                ...(entry?.proposalDetailsPage || {}),
+                jobPostHref: derivedJobUrl
+            },
+            jobPostPage: {
+                ...(entry?.jobPostPage || {}),
+                url: derivedJobUrl
+            }
+        };
+    });
+
+    if (proposalsUpdated > 0) {
+        await chrome.storage.local.set({ proposals: repairedProposals });
+    }
+
+    let jobPostsUpdated = 0;
+    if (jobPosts.length > 0 && proposalUrlFixes.size > 0) {
+        const repairedJobPosts = jobPosts.map((entry) => {
+            const sourceProposalUrl = String(entry?.sourcePageUrl || '').trim();
+            const derivedJobUrl = proposalUrlFixes.get(sourceProposalUrl);
+            if (!derivedJobUrl) {
+                return entry;
+            }
+
+            const currentJobPageUrl = normalizeJobPostHref(entry?.jobPostPage?.url || entry?.sourcePageUrl);
+            if (currentJobPageUrl === derivedJobUrl) {
+                return entry;
+            }
+
+            jobPostsUpdated += 1;
+            return {
+                ...entry,
+                jobPostPage: {
+                    ...(entry?.jobPostPage || {}),
+                    url: derivedJobUrl,
+                    data: maybeSetNestedJobUrl(entry?.jobPostPage?.data, derivedJobUrl)
+                }
+            };
+        });
+
+        if (jobPostsUpdated > 0) {
+            await chrome.storage.local.set({ jobPosts: repairedJobPosts });
+        }
+    }
+
+    const uniqueJobUrls = new Set(
+        repairedProposals
+            .map((entry) => normalizeJobPostHref(entry?.jobPostPage?.url || entry?.proposalDetailsPage?.jobPostHref))
+            .filter(Boolean)
+    );
+
+    return {
+        proposalListCount: proposalList.length,
+        proposalsCount: proposals.length,
+        proposalsWithRawGraphql,
+        proposalsUpdated,
+        proposalsDerivedUrlMissing,
+        uniqueJobUrlsAfterRepair: uniqueJobUrls.size,
+        jobPostsUpdated
+    };
+}
+
+function isQuotaExceededError(error) {
+    const message = String(error?.message || error || '');
+    return /quota|QUOTA_BYTES|QUOTA_BYTES_PER_ITEM/i.test(message);
+}
+
+function getScrapedAtMs(entry) {
+    const asMs = Date.parse(String(entry?.scrapedAt || ''));
+    return Number.isFinite(asMs) ? asMs : 0;
+}
+
+async function writeProposalsWithQuotaGuard(proposals) {
+    try {
+        await chrome.storage.local.set({ proposals });
+        return { droppedRawCount: 0 };
+    } catch (error) {
+        if (!isQuotaExceededError(error)) {
+            throw error;
+        }
+    }
+
+    const working = Array.isArray(proposals) ? proposals : [];
+    const indicesByOldest = working
+        .map((entry, index) => ({ index, scrapedAtMs: getScrapedAtMs(entry) }))
+        .sort((a, b) => a.scrapedAtMs - b.scrapedAtMs)
+        .map((item) => item.index);
+
+    let droppedRawCount = 0;
+    for (const index of indicesByOldest) {
+        const entry = working[index];
+        if (!entry?.proposalDetailsPage || entry.proposalDetailsPage.rawGraphql == null) {
+            continue;
+        }
+
+        entry.proposalDetailsPage = {
+            ...entry.proposalDetailsPage,
+            rawGraphql: null,
+            rawGraphqlDropped: true,
+            rawGraphqlDroppedAt: new Date().toISOString()
+        };
+        droppedRawCount += 1;
+
+        if (droppedRawCount % 10 !== 0) {
+            continue;
+        }
+
+        try {
+            await chrome.storage.local.set({ proposals: working });
+            return { droppedRawCount };
+        } catch (error) {
+            if (!isQuotaExceededError(error)) {
+                throw error;
+            }
+        }
+    }
+
+    await chrome.storage.local.set({ proposals: working });
+    return { droppedRawCount };
+}
+
+async function upsertProposalDetailsEntry(detailEntry, sourceLabel = 'debugger:details') {
+    const normalized = normalizeLinkData(detailEntry);
+    if (!normalized) {
+        return null;
+    }
+
+    const storageUpdate = await chrome.storage.local.get('proposals');
+    const proposals = Array.isArray(storageUpdate.proposals) ? storageUpdate.proposals : [];
+    const href = normalized.href;
+    const existingIndex = proposals.findIndex((entry) => extractExistingProposalHref(entry) === href);
+    const existingRecord = existingIndex >= 0 ? (proposals[existingIndex] || {}) : {};
+    const scrapedAtIso = new Date().toISOString();
+    const isHired = /hired/i.test(String(normalized.reason || ''));
+    const rawGraphql = detailEntry?.rawGraphql ?? null;
+    const extractedJobPostHref = extractJobPostHrefFromDetailsPayload(rawGraphql);
+
+    const nextRecord = {
+        ...existingRecord,
+        scrapedAt: scrapedAtIso,
+        proposalListPage: {
+            ...(existingRecord.proposalListPage || {}),
+            href,
+            text: normalized.text || existingRecord?.proposalListPage?.text || '',
+            reason: normalized.reason || existingRecord?.proposalListPage?.reason || '',
+            submissionTime: normalized.submissionTime ?? existingRecord?.proposalListPage?.submissionTime ?? null,
+            isHired: (
+                existingRecord?.proposalListPage?.isHired !== undefined
+                    ? existingRecord.proposalListPage.isHired
+                    : isHired
+            )
+        },
+        proposalDetailsPage: {
+            url: href,
+            rawGraphql,
+            graphqlAlias: DEBUGGER_DETAILS_ALIAS,
+            source: sourceLabel,
+            capturedAt: scrapedAtIso,
+            captureMethod: 'debugger-graphql',
+            jobPostHref: extractedJobPostHref || null
+        },
+        jobPostPage: {
+            ...(existingRecord.jobPostPage || {}),
+            url: extractedJobPostHref || existingRecord?.jobPostPage?.url || null
+        }
+    };
+
+    if (existingIndex >= 0) {
+        proposals[existingIndex] = nextRecord;
+    } else {
+        proposals.push(nextRecord);
+    }
+
+    const writeResult = await writeProposalsWithQuotaGuard(proposals);
+    if (writeResult?.droppedRawCount > 0) {
+        console.warn(
+            `${DEBUGGER_LOG_PREFIX} quota guard dropped rawGraphql from ${writeResult.droppedRawCount} older proposal record(s).`
+        );
+    }
+    return {
+        updated: existingIndex >= 0,
+        totalSize: proposals.length,
+        href,
+        droppedRawCount: writeResult?.droppedRawCount || 0
+    };
+}
+
+function setActiveDetailContext(tabId, linkData) {
+    const session = debuggerSessions.get(tabId);
+    if (!session) {
+        return;
+    }
+    const normalized = normalizeLinkData(linkData);
+    if (!normalized) {
+        return;
+    }
+    session.activeDetailContext = {
+        ...normalized,
+        startedAtMs: Date.now()
+    };
+}
+
+function clearActiveDetailContext(tabId) {
+    const session = debuggerSessions.get(tabId);
+    if (!session) {
+        return;
+    }
+    session.activeDetailContext = null;
+}
+
+function resolveDetailCaptureWaiters(session, href, detailPayload) {
+    if (!session || !href) {
+        return;
+    }
+
+    session.capturedDetailHrefs.add(href);
+    for (let index = 0; index < session.detailCaptureWaiters.length; index += 1) {
+        const waiter = session.detailCaptureWaiters[index];
+        if (waiter.href !== href) {
+            continue;
+        }
+        clearTimeout(waiter.timeoutId);
+        session.detailCaptureWaiters.splice(index, 1);
+        index -= 1;
+        waiter.resolve(detailPayload || null);
+    }
+}
+
+function waitForDetailCapture(tabId, href, timeoutMs = DEBUGGER_DETAILS_RESPONSE_WAIT_MS) {
+    const session = debuggerSessions.get(tabId);
+    if (!session || !href) {
+        return Promise.resolve(null);
+    }
+
+    if (session.capturedDetailHrefs.has(href)) {
+        session.capturedDetailHrefs.delete(href);
+        return Promise.resolve({ href, fromBuffer: true });
+    }
+
+    return new Promise((resolve) => {
+        const waiter = {
+            href,
+            resolve,
+            timeoutId: null
+        };
+        waiter.timeoutId = setTimeout(() => {
+            const waiterIndex = session.detailCaptureWaiters.indexOf(waiter);
+            if (waiterIndex >= 0) {
+                session.detailCaptureWaiters.splice(waiterIndex, 1);
+            }
+            resolve(null);
+        }, timeoutMs);
+
+        session.detailCaptureWaiters.push(waiter);
+    });
+}
+
 async function logDebuggerToTab(tabId, message) {
     try {
         await chrome.scripting.executeScript({
@@ -479,6 +976,13 @@ function ensureDebuggerListeners() {
         }
         const existingSession = debuggerSessions.get(source.tabId);
         if (existingSession) {
+            if (existingSession.detailCaptureWaiters?.length) {
+                for (const waiter of existingSession.detailCaptureWaiters) {
+                    clearTimeout(waiter.timeoutId);
+                    waiter.resolve(null);
+                }
+                existingSession.detailCaptureWaiters.length = 0;
+            }
             debuggerSessions.delete(source.tabId);
             console.log(`${DEBUGGER_LOG_PREFIX} detached from tab ${source.tabId} (${reason}).`);
         }
@@ -506,32 +1010,42 @@ async function handleDebuggerEvent(source, method, params) {
         }
 
         const alias = aliasFromGraphqlUrl(request.url);
-        const likelyProposals = isTargetGraphqlRequestUrl(request.url) ||
+        const likelyProposalList = isTargetGraphqlRequestUrl(request.url) ||
             isLikelyProposalsGraphqlRequest(request.url, request.postData);
+        const likelyProposalDetails = isTargetDetailsGraphqlRequestUrl(request.url) ||
+            isLikelyProposalDetailsGraphqlRequest(request.url, request.postData);
 
         session.requests.set(requestId, {
             requestId,
             url: String(request.url || ''),
             method: String(request.method || 'GET').toUpperCase(),
             alias,
-            likelyProposals,
+            likelyProposalList,
+            likelyProposalDetails,
             postData: String(request.postData || ''),
             requestStartedAtMs: Date.now(),
             responseMeta: null
         });
         session.stats.graphqlRequestsSeen += 1;
-        if (likelyProposals) {
-            session.stats.likelyProposalRequests += 1;
+        if (likelyProposalList) {
+            session.stats.likelyListRequests += 1;
+        }
+        if (likelyProposalDetails) {
+            session.stats.likelyDetailsRequests += 1;
         }
         console.log(
             `${DEBUGGER_LOG_PREFIX} request captured tab=${tabId} id=${requestId} ` +
             `method=${String(request.method || 'GET').toUpperCase()} alias=${alias || 'none'} ` +
-            `likely=${likelyProposals ? 'yes' : 'no'}`
+            `list=${likelyProposalList ? 'yes' : 'no'} details=${likelyProposalDetails ? 'yes' : 'no'}`
         );
-        if (likelyProposals || session.stats.graphqlRequestsSeen <= 10 || session.stats.graphqlRequestsSeen % 25 === 0) {
+        if (
+            likelyProposalList ||
+            likelyProposalDetails ||
+            (DEBUGGER_VERBOSE_LOGS && (session.stats.graphqlRequestsSeen <= 10 || session.stats.graphqlRequestsSeen % 25 === 0))
+        ) {
             await logDebuggerToTab(
                 tabId,
-                `${DEBUGGER_LOG_PREFIX} request captured alias=${alias || 'none'} likely=${likelyProposals ? 'yes' : 'no'} url=${String(request.url || '')}`
+                `${DEBUGGER_LOG_PREFIX} request captured alias=${alias || 'none'} list=${likelyProposalList ? 'yes' : 'no'} details=${likelyProposalDetails ? 'yes' : 'no'} url=${String(request.url || '')}`
             );
         }
         return;
@@ -576,34 +1090,78 @@ async function handleDebuggerEvent(source, method, params) {
         }
 
         const responseText = decodeDebuggerResponseBody(responseBodyResult);
-        if (!tracked.likelyProposals) {
-            session.stats.nonProposalResponsesIgnored += 1;
-            if (session.stats.nonProposalResponsesIgnored <= 8 || session.stats.nonProposalResponsesIgnored % 25 === 0) {
-                const preview = responseText.replace(/\s+/g, ' ').slice(0, 100);
-                console.log(
-                    `${DEBUGGER_LOG_PREFIX} ignored non-proposal response tab=${tabId} id=${requestId} ` +
-                    `alias=${tracked.alias || 'none'} len=${responseText.length} preview="${preview || '<empty>'}"`
-                );
+
+        if (session.captureMode === 'details') {
+            if (!tracked.likelyProposalDetails) {
+                session.stats.nonTargetResponsesIgnored += 1;
+                return;
             }
+
+            session.stats.detailsResponsesCaptured += 1;
+            const parsedResponse = safeParseJsonPayload(responseText);
+            if (!parsedResponse) {
+                session.stats.parseFailed += 1;
+                console.warn(
+                    `${DEBUGGER_LOG_PREFIX} details response parse failed tab=${tabId} id=${requestId} alias=${tracked.alias || 'none'}`
+                );
+                return;
+            }
+
+            const activeContext = session.activeDetailContext ? { ...session.activeDetailContext } : null;
+            const href = String(activeContext?.href || '').trim();
+            if (!href) {
+                session.stats.nonTargetResponsesIgnored += 1;
+                if (DEBUGGER_VERBOSE_LOGS) {
+                    console.log(
+                        `${DEBUGGER_LOG_PREFIX} details response ignored because active context is missing ` +
+                        `tab=${tabId} id=${requestId} alias=${tracked.alias || 'none'}`
+                    );
+                }
+                return;
+            }
+
+            const upsertResult = await queueProposalDetailsUpsert(
+                {
+                    ...activeContext,
+                    rawGraphql: parsedResponse?.data ?? parsedResponse
+                },
+                `debugger:${tracked.method.toLowerCase()}`
+            );
+            session.stats.detailsUpsertOps += 1;
+            if (upsertResult) {
+                session.stats.detailsUpsertedEntries += 1;
+            }
+
+            const detailPayload = {
+                href,
+                alias: tracked.alias || '',
+                len: responseText.length
+            };
+            resolveDetailCaptureWaiters(session, href, detailPayload);
+
+            await logDebuggerToTab(
+                tabId,
+                `${DEBUGGER_LOG_PREFIX} details response alias=${tracked.alias || 'none'} href=${href} len=${responseText.length} total=${upsertResult?.totalSize || '?'}`
+            );
             return;
         }
+
+        if (!tracked.likelyProposalList) {
+            session.stats.nonTargetResponsesIgnored += 1;
+            return;
+        }
+
         const links = extractProposalLinksFromGraphqlResponse(responseText, session.scrapeMode);
         session.stats.responsesCaptured += 1;
 
         if (!links.length) {
-            if (tracked.likelyProposals) {
-                session.stats.parseFailed += 1;
-            }
-            if (tracked.likelyProposals || session.stats.responsesCaptured <= 10 || session.stats.responsesCaptured % 25 === 0) {
+            session.stats.parseFailed += 1;
+            if (DEBUGGER_VERBOSE_LOGS) {
                 const preview = responseText.replace(/\s+/g, ' ').slice(0, 100);
                 console.log(
                     `${DEBUGGER_LOG_PREFIX} response captured tab=${tabId} id=${requestId} ` +
-                    `alias=${tracked.alias || 'none'} likely=${tracked.likelyProposals ? 'yes' : 'no'} ` +
+                    `alias=${tracked.alias || 'none'} likely=${tracked.likelyProposalList ? 'yes' : 'no'} ` +
                     `len=${responseText.length} links=0 preview="${preview || '<empty>'}"`
-                );
-                await logDebuggerToTab(
-                    tabId,
-                    `${DEBUGGER_LOG_PREFIX} response alias=${tracked.alias || 'none'} likely=${tracked.likelyProposals ? 'yes' : 'no'} len=${responseText.length} links=0 preview="${preview || '<empty>'}"`
                 );
             }
             return;
@@ -619,21 +1177,28 @@ async function handleDebuggerEvent(source, method, params) {
 
         console.log(
             `${DEBUGGER_LOG_PREFIX} response captured tab=${tabId} id=${requestId} ` +
-            `alias=${tracked.alias || 'none'} likely=${tracked.likelyProposals ? 'yes' : 'no'} ` +
+            `alias=${tracked.alias || 'none'} likely=${tracked.likelyProposalList ? 'yes' : 'no'} ` +
             `len=${responseText.length} links=${links.length} ` +
             `upserted=${upsertResult?.upsertedCount || 0} totalList=${upsertResult?.totalSize || 0}`
         );
         await logDebuggerToTab(
             tabId,
-            `${DEBUGGER_LOG_PREFIX} response alias=${tracked.alias || 'none'} likely=${tracked.likelyProposals ? 'yes' : 'no'} len=${responseText.length} links=${links.length} upserted=${upsertResult?.upsertedCount || 0} total=${upsertResult?.totalSize || 0}`
+            `${DEBUGGER_LOG_PREFIX} response alias=${tracked.alias || 'none'} likely=${tracked.likelyProposalList ? 'yes' : 'no'} len=${responseText.length} links=${links.length} upserted=${upsertResult?.upsertedCount || 0} total=${upsertResult?.totalSize || 0}`
         );
     }
 }
 
-async function startDebuggerCaptureForTab(tabId, scrapeMode) {
+async function startDebuggerCaptureForTab(tabId, options = {}) {
     ensureDebuggerListeners();
+    const scrapeMode = options?.scrapeMode === 'all' ? 'all' : 'successful';
+    const captureMode = options?.captureMode === 'details' ? 'details' : 'list';
 
     if (debuggerSessions.has(tabId)) {
+        const existingSession = debuggerSessions.get(tabId);
+        if (existingSession) {
+            existingSession.scrapeMode = scrapeMode;
+            existingSession.captureMode = captureMode;
+        }
         return true;
     }
 
@@ -647,16 +1212,24 @@ async function startDebuggerCaptureForTab(tabId, scrapeMode) {
             tabId,
             source,
             scrapeMode,
+            captureMode,
             requests: new Map(),
+            activeDetailContext: null,
+            capturedDetailHrefs: new Set(),
+            detailCaptureWaiters: [],
             stats: {
                 graphqlRequestsSeen: 0,
-                likelyProposalRequests: 0,
+                likelyListRequests: 0,
+                likelyDetailsRequests: 0,
                 responsesCaptured: 0,
-                nonProposalResponsesIgnored: 0,
+                detailsResponsesCaptured: 0,
+                nonTargetResponsesIgnored: 0,
                 parseFailed: 0,
                 linksRecovered: 0,
                 upsertOps: 0,
-                upsertedEntries: 0
+                upsertedEntries: 0,
+                detailsUpsertOps: 0,
+                detailsUpsertedEntries: 0
             }
         });
 
@@ -674,6 +1247,14 @@ async function stopDebuggerCaptureForTab(tabId) {
     const session = debuggerSessions.get(tabId);
     debuggerSessions.delete(tabId);
 
+    if (session?.detailCaptureWaiters?.length) {
+        for (const waiter of session.detailCaptureWaiters) {
+            clearTimeout(waiter.timeoutId);
+            waiter.resolve(null);
+        }
+        session.detailCaptureWaiters.length = 0;
+    }
+
     try {
         await new Promise((resolve) => setTimeout(resolve, 600));
         await debuggerDetach(tabId);
@@ -685,17 +1266,19 @@ async function stopDebuggerCaptureForTab(tabId) {
         const stats = session.stats;
         const summary = (
             `${DEBUGGER_LOG_PREFIX} summary tab=${tabId} graphql=${stats.graphqlRequestsSeen} ` +
-            `likely=${stats.likelyProposalRequests} ` +
-            `ignored=${stats.nonProposalResponsesIgnored} ` +
-            `responses=${stats.responsesCaptured} links=${stats.linksRecovered} ` +
-            `parseFailed=${stats.parseFailed} upserts=${stats.upsertOps}/${stats.upsertedEntries}`
+            `likelyList=${stats.likelyListRequests} likelyDetails=${stats.likelyDetailsRequests} ` +
+            `ignored=${stats.nonTargetResponsesIgnored} ` +
+            `listResponses=${stats.responsesCaptured} links=${stats.linksRecovered} ` +
+            `detailResponses=${stats.detailsResponsesCaptured} ` +
+            `parseFailed=${stats.parseFailed} listUpserts=${stats.upsertOps}/${stats.upsertedEntries} ` +
+            `detailUpserts=${stats.detailsUpsertOps}/${stats.detailsUpsertedEntries}`
         );
         console.log(summary);
         await logDebuggerToTab(tabId, summary);
     }
 }
 
-chrome.runtime.onMessage.addListener((request) => {
+chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
     if (request.action === 'startScraping') {
         const scrapeMode = normalizeScrapeMode(request.scrapeMode);
         startScrapingFlow(scrapeMode).catch((error) => {
@@ -716,8 +1299,162 @@ chrome.runtime.onMessage.addListener((request) => {
         startCurrentJobPostScrapingFlow().catch((error) => {
             console.error('Failed to start current job post scraping:', error);
         });
+        return;
+    }
+
+    if (request.action === 'startJobPostsFromSavedListScraping') {
+        const scrapeMode = normalizeScrapeMode(request.scrapeMode);
+        startJobPostsFromSavedListScrapingFlow(scrapeMode).catch((error) => {
+            console.error('Failed to start saved-list job post scraping:', error);
+        });
+        return;
+    }
+
+    if (request.action === 'repairSavedJobPostUrls') {
+        repairSavedJobPostUrls()
+            .then((summary) => {
+                sendResponse({ ok: true, summary });
+            })
+            .catch((error) => {
+                console.error('Failed to repair saved job post URLs:', error);
+                sendResponse({ ok: false, error: error?.message || 'Unknown repair failure' });
+            });
+        return true;
     }
 });
+
+function hasCapturedDetailsRaw(entry) {
+    return entry?.proposalDetailsPage?.rawGraphql !== undefined &&
+        entry?.proposalDetailsPage?.rawGraphql !== null;
+}
+
+async function buildPendingDetailLinks(scrapeMode) {
+    const storageData = await chrome.storage.local.get(['proposalList', 'proposals']);
+    const proposalList = Array.isArray(storageData.proposalList) ? storageData.proposalList : [];
+    const proposals = Array.isArray(storageData.proposals) ? storageData.proposals : [];
+    const capturedByHref = new Set();
+
+    for (const entry of proposals) {
+        const href = extractExistingProposalHref(entry);
+        if (!href) {
+            continue;
+        }
+        if (hasCapturedDetailsRaw(entry)) {
+            capturedByHref.add(href);
+        }
+    }
+
+    const pending = [];
+    const seen = new Set();
+    for (const entry of proposalList) {
+        const normalized = normalizeLinkData(entry);
+        if (!normalized) {
+            continue;
+        }
+        if (!isReasonAllowedForMode(normalized.reason, scrapeMode)) {
+            continue;
+        }
+        if (capturedByHref.has(normalized.href)) {
+            continue;
+        }
+        if (seen.has(normalized.href)) {
+            continue;
+        }
+        seen.add(normalized.href);
+        pending.push(normalized);
+    }
+
+    return {
+        proposalList,
+        proposals,
+        pending
+    };
+}
+
+async function runDebuggerProposalDetailsFlow(tabId, scrapeMode) {
+    const { pending, proposalList, proposals } = await buildPendingDetailLinks(scrapeMode);
+    const startedAtIso = new Date().toISOString();
+    await queueProposalDetailsSummaryUpdate({
+        mode: scrapeMode,
+        startedAt: startedAtIso,
+        finishedAt: null,
+        inProgress: true,
+        totalPending: pending.length,
+        captured: 0,
+        timedOut: 0,
+        currentIndex: 0,
+        currentHref: '',
+        listSize: proposalList.length,
+        proposalsSize: proposals.length
+    }, { reset: true });
+    await logDebuggerToTab(
+        tabId,
+        `${DEBUGGER_LOG_PREFIX} details run started. list=${proposalList.length} proposals=${proposals.length} pending=${pending.length} mode=${scrapeMode}`
+    );
+
+    if (!pending.length) {
+        console.log(`${DEBUGGER_LOG_PREFIX} details run found no pending proposal links.`);
+        await logDebuggerToTab(tabId, `${DEBUGGER_LOG_PREFIX} details run found no pending proposal links.`);
+        await queueProposalDetailsSummaryUpdate({
+            inProgress: false,
+            finishedAt: new Date().toISOString(),
+            status: 'no-pending-links'
+        });
+        return;
+    }
+
+    let captured = 0;
+    let timedOut = 0;
+    for (let index = 0; index < pending.length; index += 1) {
+        const link = pending[index];
+        await queueProposalDetailsSummaryUpdate({
+            currentIndex: index + 1,
+            currentHref: link.href
+        });
+        setActiveDetailContext(tabId, link);
+        await logDebuggerToTab(
+            tabId,
+            `${DEBUGGER_LOG_PREFIX} details ${index + 1}/${pending.length} navigating ${link.href}`
+        );
+
+        await chrome.tabs.update(tabId, { url: link.href });
+        await waitForTabReady(tabId, UPWORK_ROOT_URL);
+        const capturedPayload = await waitForDetailCapture(tabId, link.href, DEBUGGER_DETAILS_RESPONSE_WAIT_MS);
+
+        if (capturedPayload) {
+            captured += 1;
+            await queueProposalDetailsSummaryUpdate({ captured });
+            await logDebuggerToTab(
+                tabId,
+                `${DEBUGGER_LOG_PREFIX} details ${index + 1}/${pending.length} captured alias=${capturedPayload.alias || 'unknown'} href=${link.href}`
+            );
+        } else {
+            timedOut += 1;
+            await queueProposalDetailsSummaryUpdate({ timedOut });
+            console.warn(`${DEBUGGER_LOG_PREFIX} details capture timeout for ${link.href}`);
+            await logDebuggerToTab(
+                tabId,
+                `${DEBUGGER_LOG_PREFIX} details ${index + 1}/${pending.length} timed out for ${link.href}`
+            );
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, DEBUGGER_DETAILS_INTER_ITEM_DELAY_MS));
+    }
+
+    clearActiveDetailContext(tabId);
+    await queueProposalDetailsSummaryUpdate({
+        inProgress: false,
+        finishedAt: new Date().toISOString(),
+        currentHref: '',
+        status: 'completed',
+        captured,
+        timedOut
+    });
+    await logDebuggerToTab(
+        tabId,
+        `${DEBUGGER_LOG_PREFIX} details run complete. captured=${captured} timedOut=${timedOut} total=${pending.length}`
+    );
+}
 
 async function startScrapingFlow(scrapeMode = DEFAULT_SCRAPE_MODE) {
     const [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -731,12 +1468,33 @@ async function startScrapingFlow(scrapeMode = DEFAULT_SCRAPE_MODE) {
     }
 
     await waitForTabReady(targetTabId, ARCHIVED_PROPOSALS_URL);
-    await ensureInjectedScraperHelpers(targetTabId);
-    await chrome.scripting.executeScript({
-        target: { tabId: targetTabId },
-        function: scrapeProposals,
-        args: [{ scrapeMode, scrapeProposalDetailsFromList: true }]
+    const debuggerAttached = await startDebuggerCaptureForTab(targetTabId, {
+        scrapeMode,
+        captureMode: 'details'
     });
+    if (!debuggerAttached) {
+        throw new Error(
+            'Proposal details capture requires debugger attachment. ' +
+            'Close DevTools for this tab (if open) and retry.'
+        );
+    }
+
+    try {
+        try {
+            await runDebuggerProposalDetailsFlow(targetTabId, scrapeMode);
+        } catch (error) {
+            await queueProposalDetailsSummaryUpdate({
+                inProgress: false,
+                finishedAt: new Date().toISOString(),
+                status: 'failed',
+                error: error?.message || 'unknown details capture failure'
+            });
+            throw error;
+        }
+    } finally {
+        await stopDebuggerCaptureForTab(targetTabId);
+        await chrome.tabs.update(targetTabId, { url: ARCHIVED_PROPOSALS_URL });
+    }
 }
 
 async function startArchivedListScrapingFlow(scrapeMode = DEFAULT_SCRAPE_MODE) {
@@ -753,7 +1511,16 @@ async function startArchivedListScrapingFlow(scrapeMode = DEFAULT_SCRAPE_MODE) {
     await waitForTabReady(targetTabId, ARCHIVED_PROPOSALS_URL);
     let debuggerAttached = false;
     if (DEBUGGER_ENABLED_FOR_LIST_SCRAPE) {
-        debuggerAttached = await startDebuggerCaptureForTab(targetTabId, scrapeMode);
+        debuggerAttached = await startDebuggerCaptureForTab(targetTabId, {
+            scrapeMode,
+            captureMode: 'list'
+        });
+        if (!debuggerAttached) {
+            throw new Error(
+                'Archived list capture requires debugger attachment. ' +
+                'Close DevTools for this tab (if open) and retry.'
+            );
+        }
     }
     await ensureInjectedScraperHelpers(targetTabId, {
         injectMainWorldHelpers: !debuggerAttached
@@ -775,6 +1542,26 @@ async function startArchivedListScrapingFlow(scrapeMode = DEFAULT_SCRAPE_MODE) {
             await stopDebuggerCaptureForTab(targetTabId);
         }
     }
+}
+
+async function startJobPostsFromSavedListScrapingFlow(scrapeMode = DEFAULT_SCRAPE_MODE) {
+    const [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+    let targetTabId;
+    if (currentTab?.url?.startsWith(ARCHIVED_PROPOSALS_URL)) {
+        targetTabId = currentTab.id;
+    } else {
+        const newTab = await chrome.tabs.create({ url: ARCHIVED_PROPOSALS_URL });
+        targetTabId = newTab.id;
+    }
+
+    await waitForTabReady(targetTabId, ARCHIVED_PROPOSALS_URL);
+    await ensureInjectedScraperHelpers(targetTabId);
+    await chrome.scripting.executeScript({
+        target: { tabId: targetTabId },
+        function: scrapeProposals,
+        args: [{ scrapeMode, scrapeJobPostsFromSavedList: true }]
+    });
 }
 
 async function startCurrentJobPostScrapingFlow() {

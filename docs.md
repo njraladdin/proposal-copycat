@@ -1,53 +1,48 @@
-# Proposal List Capture Notes
+# Workflow Notes
 
-## Goal
-Collect archived proposal list data reliably from Upwork, with cleaner structured fields than DOM scraping.
+## Current Pipeline
 
-## What We Changed
+1. **Scrape List Only** (archived proposals list)
+- Uses `chrome.debugger` + GraphQL interception (`gql-query-proposalsbytype`).
+- Stores to `chrome.storage.local.proposalList`.
+- In this mode, DOM is used only for pagination, not list-item extraction.
 
-1. Added a debugger-based capture path in `background/controller.js` for **archived list scraping**.
-2. Attached Chrome DevTools Protocol (`chrome.debugger`) to the active archived proposals tab.
-3. Listened to `Network.*` events and captured GraphQL responses from Upwork endpoints.
-4. Parsed `gql-query-proposalsbytype` response payloads and extracted proposal entries.
-5. Saved results directly to `chrome.storage.local.proposalList`.
-6. Added `rawGraphql` per proposal item so each entry keeps the original GraphQL application object.
-7. Disabled in-page network monitor + DOM list upserts during debugger-enabled list runs to avoid noisy duplicates.
+2. **Scrape Details (Use Saved List)**
+- Uses `chrome.debugger` + GraphQL interception (`gql-query-get-auth-job-details`).
+- Navigates each saved proposal URL and captures raw details payload.
+- Stores to `chrome.storage.local.proposals`.
+- `proposalDetailsPage` is debugger-only (`captureMethod: "debugger-graphql"`), no DOM proposal-details parsing.
+- Also stores `proposalDetailsCaptureSummary` for run status/progress.
 
-## Why This Works Better
+3. **Job Post Scraping**
+- **Start Scraping** in Job Posts tab: scrapes current active `upwork.com/jobs/...` page.
+- **Scrape From Saved Details** in Job Posts tab: reads saved proposal details, gets job URLs, fetches/parses job pages, stores results.
+- Job post parsing is DOM/`__NUXT_DATA__` based (no request interception path here).
 
-- DOM scraping depends on rendered UI and can miss fields.
-- In-page interception saw analytics calls (`/shitake/suit`) rather than target payload.
-- Debugger capture reads actual network response bodies for GraphQL requests.
+## Important Stored Fields
 
-## Data Shape Saved (`proposalList`)
+- `proposalList[]`
+  - `href`, `text`, `reason`, `submissionTime`, `rawGraphql`, `scrapedAt`, `source`
 
-Each item now includes:
+- `proposals[]`
+  - `proposalListPage` metadata
+  - `proposalDetailsPage.rawGraphql` (captured GraphQL data)
+  - `proposalDetailsPage.jobPostHref` (derived job URL)
+  - `jobPostPage.url` (normalized job URL)
+  - storage safety: if a write hits quota, older `rawGraphql` blobs are dropped automatically (`rawGraphqlDropped: true`) and core metadata is kept
 
-- `href`
-- `text`
-- `reason`
-- `submissionTime`
-- `rawGraphql` (raw application node from GraphQL)
-- `scrapedAt`
-- `source`
+- `jobPosts[]`
+  - `jobPostPage.url`, `jobPostPage.data`
+  - `source` is either current-page scrape or `saved-proposal-details`
 
-## Important Implementation Notes
+## Storage Notes
 
-- `manifest.json` now includes `"debugger"` permission.
-- GraphQL parser supports:
-  - direct `proposalUrl`
-  - ciphertext-based URL
-  - `applicationId -> /nx/proposals/{applicationId}`
-- Non-proposal GraphQL responses (for example `gql-query-auctionbyjobuid`) are ignored for list upserts.
+- Extension now uses `unlimitedStorage` permission to avoid the default 10MB `chrome.storage.local` cap.
+- A quota guard still exists for safety and trims oldest heavy `rawGraphql` fields if needed.
 
-## Current Runtime Behavior
+## Popup Actions Added
 
-- Archived list scrape runs pagination in page script for control flow/UI status.
-- Data persistence for list entries comes from debugger GraphQL capture.
-- `/shitake/suit` monitor logs are analytics noise and are not used for list data.
-
-## Future Cleanup (Optional)
-
-- Remove or reduce legacy in-page monitor logs when debugger mode is active.
-- Add a toggle to choose debugger mode vs DOM mode.
-- Move debugger telemetry behind a debug flag once stable.
+- `Clear` in **Detailed Proposals** now clears only:
+  - `proposals`
+  - `proposalDetailsCaptureSummary`
+- `Scrape From Saved Details` button added in **Current Job Post** tab.

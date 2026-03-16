@@ -5,6 +5,7 @@ async function scrapeProposals(options = {}) {
 
     const scrapeMode = options?.scrapeMode === 'all' ? 'all' : 'successful';
     const scrapeCurrentJobPost = options?.scrapeCurrentJobPost === true;
+    const scrapeJobPostsFromSavedList = options?.scrapeJobPostsFromSavedList === true;
     const scrapeArchivedListOnly = options?.scrapeArchivedListOnly === true;
     const scrapeProposalDetailsFromList = options?.scrapeProposalDetailsFromList === true;
     const useDebuggerProposalListCapture = options?.useDebuggerProposalListCapture === true;
@@ -13,29 +14,36 @@ async function scrapeProposals(options = {}) {
     const scrapeDetailsFromSavedList = (
         scrapeProposalDetailsFromList &&
         !scrapeArchivedListOnly &&
-        !scrapeCurrentJobPost
+        !scrapeCurrentJobPost &&
+        !scrapeJobPostsFromSavedList
     );
+    const isDebuggerListCaptureMode = scrapeArchivedListOnly && useDebuggerProposalListCapture;
     const useNetworkMonitor = !disableNetworkMonitor;
     const statusTitle = scrapeCurrentJobPost
         ? 'Collecting Job Post'
+        : (scrapeJobPostsFromSavedList
+            ? 'Collecting Job Posts'
         : (scrapeArchivedListOnly
             ? 'Collecting Proposal List'
             : (scrapeDetailsFromSavedList
                 ? 'Collecting Proposal Details'
-                : (scrapeMode === 'all' ? 'Collecting Proposals' : 'Collecting Successful Proposals')));
+                : (scrapeMode === 'all' ? 'Collecting Proposals' : 'Collecting Successful Proposals'))));
     const modeBadgeText = scrapeCurrentJobPost
         ? 'Current Job Page'
+        : (scrapeJobPostsFromSavedList
+            ? (scrapeMode === 'all' ? 'Job Posts From Saved Details: All Proposals' : 'Job Posts From Saved Details: Successful Only')
         : (scrapeArchivedListOnly
             ? (scrapeMode === 'all' ? 'Archived List: All Proposals' : 'Archived List: Successful Only')
             : (scrapeDetailsFromSavedList
                 ? (scrapeMode === 'all' ? 'Details From Saved List: All Proposals' : 'Details From Saved List: Successful Only')
-                : (scrapeMode === 'all' ? 'All Proposals' : 'Successful Only')));
+                : (scrapeMode === 'all' ? 'All Proposals' : 'Successful Only'))));
     const modeSummaryText = scrapeMode === 'all' ? 'all proposals' : 'successful proposals';
 
     // Get existing proposals from storage
     const storageData = await chrome.storage.local.get(['proposals', 'proposalList']);
     const existingProposals = storageData.proposals || [];
     const existingProposalList = Array.isArray(storageData.proposalList) ? storageData.proposalList : [];
+    const initialProposalListCount = existingProposalList.length;
     const extractProposalUrl = (proposal) => (
         proposal?.proposalDetailsPage?.data?.proposal?.proposalUrl ||
         proposal?.proposal?.proposalUrl ||
@@ -43,6 +51,201 @@ async function scrapeProposals(options = {}) {
         proposal?.href ||
         proposal?.url
     );
+    const normalizeJobPostHref = (value) => {
+        const raw = String(value || '').trim();
+        if (!raw) {
+            return '';
+        }
+        if (/^https?:\/\//i.test(raw)) {
+            return raw;
+        }
+        if (/^\/jobs\//i.test(raw)) {
+            return `https://www.upwork.com${raw}`;
+        }
+        if (/^~0\d+/.test(raw)) {
+            return `https://www.upwork.com/jobs/${raw}`;
+        }
+        return '';
+    };
+    const deriveCiphertextFromOpeningId = (value) => {
+        const raw = String(value || '').trim();
+        if (!/^\d{8,}$/.test(raw)) {
+            return '';
+        }
+        return `~02${raw}`;
+    };
+    const collectJobPostHrefCandidatesFromRawGraphql = (rawGraphql) => {
+        const details = rawGraphql?.jobAuthDetails || rawGraphql || {};
+        const opening = details?.opening || {};
+        const jobDetails = details?.jobDetails || {};
+        const jobDetailsOpening = jobDetails?.opening || {};
+        const openingJob = opening?.job || jobDetailsOpening?.job || jobDetails?.job || {};
+        const openingInfo = opening?.info || openingJob?.info || jobDetailsOpening?.info || {};
+        const jobInfo = openingJob?.info || {};
+
+        const openingIdCandidates = [
+            opening?.id,
+            opening?.openingId,
+            opening?.openingUid,
+            openingInfo?.id,
+            openingJob?.id,
+            openingJob?.uid,
+            openingJob?.openingId,
+            openingJob?.openingUid,
+            jobInfo?.id,
+            details?.openingId,
+            details?.openingUid,
+            jobDetailsOpening?.id,
+            jobDetailsOpening?.openingId,
+            jobDetailsOpening?.openingUid
+        ]
+            .map((idValue) => deriveCiphertextFromOpeningId(idValue))
+            .filter(Boolean);
+
+        // All candidates are tied to this proposal's opening details.
+        return [
+            opening?.url,
+            opening?.jobPostUrl,
+            opening?.canonicalUrl,
+            openingInfo?.url,
+            openingJob?.url,
+            jobInfo?.url,
+            opening?.ciphertext,
+            opening?.jobCiphertext,
+            openingInfo?.ciphertext,
+            openingJob?.ciphertext,
+            jobInfo?.ciphertext,
+            jobDetailsOpening?.ciphertext,
+            jobDetailsOpening?.jobCiphertext,
+            ...openingIdCandidates
+        ];
+    };
+    const extractJobPostUrlFromRawGraphql = (rawGraphql) => {
+        const candidates = collectJobPostHrefCandidatesFromRawGraphql(rawGraphql);
+        for (const candidate of candidates) {
+            const normalized = normalizeJobPostHref(candidate);
+            if (normalized) {
+                return normalized;
+            }
+        }
+        return '';
+    };
+    const extractJobPostUrlFromProposal = (proposal) => (
+        extractJobPostUrlFromRawGraphql(proposal?.proposalDetailsPage?.rawGraphql) ||
+        normalizeJobPostHref(
+            proposal?.jobPostPage?.url ||
+            proposal?.proposalDetailsPage?.jobPostHref ||
+            proposal?.proposalDetailsPage?.data?.jobPost?.url
+        )
+    );
+    const extractJobPostDataFallbackFromProposal = (proposal, fallbackJobUrl = '') => {
+        const existingDetailsData = proposal?.proposalDetailsPage?.data;
+        if (existingDetailsData && typeof existingDetailsData === 'object') {
+            const existingJobPost = existingDetailsData.jobPost;
+            if (existingJobPost && typeof existingJobPost === 'object' && Object.keys(existingJobPost).length > 0) {
+                const clonedData = JSON.parse(JSON.stringify(existingDetailsData));
+                if (!clonedData?.jobPost?.url) {
+                    const fallbackUrl = normalizeJobPostHref(fallbackJobUrl || proposal?.jobPostPage?.url || '');
+                    if (fallbackUrl) {
+                        clonedData.jobPost = {
+                            ...clonedData.jobPost,
+                            url: fallbackUrl
+                        };
+                    }
+                }
+                return clonedData;
+            }
+        }
+
+        const rawGraphql = proposal?.proposalDetailsPage?.rawGraphql;
+        const details = rawGraphql?.jobAuthDetails || rawGraphql || {};
+        if (!details || typeof details !== 'object') {
+            return null;
+        }
+
+        const jobDetails = details?.jobDetails || {};
+        const opening = details?.opening || jobDetails?.opening || {};
+        const openingInfo = opening?.info || jobDetails?.opening?.info || {};
+        const openingJob = opening?.job || jobDetails?.opening?.job || jobDetails?.job || {};
+        const buyer = details?.buyer || jobDetails?.buyer || {};
+        const buyerInfo = buyer?.info || {};
+
+        const jobPostUrl = (
+            normalizeJobPostHref(
+                opening?.url ||
+                opening?.jobPostUrl ||
+                opening?.canonicalUrl ||
+                openingInfo?.url ||
+                opening?.ciphertext ||
+                opening?.jobCiphertext ||
+                openingInfo?.ciphertext ||
+                openingJob?.info?.url ||
+                openingJob?.info?.ciphertext ||
+                fallbackJobUrl ||
+                proposal?.jobPostPage?.url
+            ) ||
+            ''
+        );
+
+        const budget = {};
+        setIfPresent(budget, 'amount', openingJob?.budget?.amount);
+        setIfPresent(budget, 'currency', openingJob?.budget?.currencyCode);
+        setIfPresent(budget, 'hourlyMin', openingJob?.extendedBudgetInfo?.hourlyBudgetMin);
+        setIfPresent(budget, 'hourlyMax', openingJob?.extendedBudgetInfo?.hourlyBudgetMax);
+
+        const skills = []
+            .concat((openingJob?.sandsData?.additionalSkills || []).map((item) => item?.prefLabel))
+            .concat((openingJob?.sandsData?.ontologySkills || []).map((item) => item?.prefLabel))
+            .filter(Boolean);
+
+        const clientInfo = {};
+        const clientLocation = {};
+        setIfPresent(clientLocation, 'country', buyerInfo?.location?.country);
+        setIfPresent(clientLocation, 'city', buyerInfo?.location?.city);
+        setIfPresent(clientLocation, 'state', buyerInfo?.location?.state);
+        setIfPresent(clientLocation, 'timezone', buyerInfo?.location?.countryTimezone);
+
+        const clientStats = {};
+        setIfPresent(clientStats, 'totalSpent', buyerInfo?.stats?.totalCharges?.amount);
+        setIfPresent(clientStats, 'feedbackCount', buyerInfo?.stats?.feedbackCount);
+        setIfPresent(clientStats, 'ratingScore', buyerInfo?.stats?.score);
+        setIfPresent(clientStats, 'totalJobsWithHires', buyerInfo?.stats?.totalJobsWithHires);
+        setIfPresent(clientStats, 'activeAssignments', buyerInfo?.stats?.activeAssignmentsCount);
+        setIfPresent(clientStats, 'postedCount', buyerInfo?.jobs?.postedCount);
+
+        setIfPresent(clientInfo, 'location', clientLocation);
+        setIfPresent(clientInfo, 'stats', clientStats);
+        setIfPresent(clientInfo, 'isPaymentMethodVerified', buyer?.isPaymentMethodVerified);
+        setIfPresent(clientInfo, 'isEnterprise', buyer?.isEnterprise);
+
+        const jobPost = {};
+        setIfPresent(jobPost, 'url', jobPostUrl || null);
+        setIfPresent(jobPost, 'title', openingInfo?.title || openingJob?.info?.title || proposal?.proposalListPage?.text);
+        setIfPresent(jobPost, 'description', openingJob?.description || jobDetails?.jobDescription);
+        setIfPresent(jobPost, 'postedOn', openingJob?.postedOn);
+        setIfPresent(jobPost, 'category', openingJob?.category?.name);
+        setIfPresent(jobPost, 'workload', openingJob?.workload);
+        setIfPresent(jobPost, 'duration', openingJob?.engagementDuration?.label || openingJob?.engagementDuration);
+        setIfPresent(jobPost, 'budget', budget);
+        setIfPresent(jobPost, 'skills', skills);
+        setIfPresent(
+            jobPost,
+            'clientActivity',
+            openingJob?.clientActivity || null
+        );
+        setIfPresent(
+            jobPost,
+            'screeningQuestions',
+            (jobDetails?.qualifications?.questions || []).map((item) => item?.question).filter(Boolean)
+        );
+
+        const cleanFallback = removeEmptySections({
+            jobPost,
+            clientInfo
+        });
+
+        return Object.keys(cleanFallback).length ? cleanFallback : null;
+    };
     const existingDetailedUrls = new Set(
         existingProposals
             .map((proposal) => extractProposalUrl(proposal))
@@ -98,6 +301,11 @@ async function scrapeProposals(options = {}) {
         completedPages: 0,
         observedItemsInPages: 0
     };
+    const usesPagedListProgress = (
+        !scrapeCurrentJobPost &&
+        !scrapeJobPostsFromSavedList &&
+        !scrapeDetailsFromSavedList
+    );
     const MAX_RECENT_ERRORS = 5;
 
     const escapeHtml = (value) => String(value || '')
@@ -141,14 +349,14 @@ async function scrapeProposals(options = {}) {
         const currentPage = parsePositiveInteger(progressState.listCurrent);
         const totalPages = parsePositiveInteger(progressState.listTotal);
         const currentItem = Number.isFinite(progressState.itemCurrent) ? progressState.itemCurrent : 0;
-        const totalItemsOnPage = Number.isFinite(progressState.itemTotal) ? progressState.itemTotal : 0;
+        const totalItemsOnRun = Number.isFinite(progressState.itemTotal) ? progressState.itemTotal : 0;
 
-        let remainingItems = Math.max(totalItemsOnPage - currentItem, 0);
-        if (currentPage && totalPages && totalPages >= currentPage) {
+        let remainingItems = Math.max(totalItemsOnRun - currentItem, 0);
+        if (usesPagedListProgress && currentPage && totalPages && totalPages >= currentPage) {
             const pagesRemaining = totalPages - currentPage;
             const averageItemsPerPage = runMetrics.completedPages > 0
                 ? (runMetrics.observedItemsInPages / runMetrics.completedPages)
-                : (totalItemsOnPage > 0 ? totalItemsOnPage : 0);
+                : (totalItemsOnRun > 0 ? totalItemsOnRun : 0);
 
             if (pagesRemaining > 0 && averageItemsPerPage > 0) {
                 remainingItems += pagesRemaining * averageItemsPerPage;
@@ -174,13 +382,26 @@ async function scrapeProposals(options = {}) {
             lastActiveAction = updates.action;
         }
 
-        const listProgressText = progressState.listCurrent
-            ? `Page ${progressState.listCurrent}${progressState.listTotal ? ` of ${progressState.listTotal}` : ''}`
-            : 'Loading page info...';
+        const listProgressLabel = usesPagedListProgress ? 'List Progress' : 'Run Scope';
+        const listProgressText = usesPagedListProgress
+            ? (
+                progressState.listCurrent
+                    ? `Segment ${progressState.listCurrent}${progressState.listTotal ? ` of ${progressState.listTotal}` : ''}`
+                    : 'Scanning list...'
+            )
+            : (
+                scrapeCurrentJobPost
+                    ? 'Active job page'
+                    : (scrapeJobPostsFromSavedList
+                        ? `${progressState.itemTotal || 0} saved targets`
+                        : (scrapeDetailsFromSavedList
+                            ? `${progressState.itemTotal || 0} saved proposals`
+                            : 'Single run'))
+            );
 
         const pageProgressText = progressState.itemTotal > 0
             ? `${progressState.itemCurrent}/${progressState.itemTotal}`
-            : 'None on this page';
+            : (usesPagedListProgress ? 'None in current segment' : 'Waiting...');
         const etaRemainingMs = estimateRemainingMs();
         const etaText = etaRemainingMs === null
             ? 'Calculating...'
@@ -241,7 +462,7 @@ async function scrapeProposals(options = {}) {
                         text-transform: uppercase;
                         letter-spacing: 0.4px;
                         font-weight: 600;
-                    ">List Progress</div>
+                    ">${listProgressLabel}</div>
                     <div style="font-size: 13px; color: #1a1f36; font-weight: 600;">
                         ${listProgressText}
                     </div>
@@ -252,7 +473,7 @@ async function scrapeProposals(options = {}) {
                         text-transform: uppercase;
                         letter-spacing: 0.4px;
                         font-weight: 600;
-                    ">Page Progress</div>
+                    ">Item Progress</div>
                     <div style="font-size: 13px; color: #1a1f36; font-weight: 600;">
                         ${pageProgressText}
                     </div>
@@ -582,6 +803,7 @@ async function scrapeProposals(options = {}) {
     debugLog(
         `Loaded ${existingProposals.length} detailed proposals and ${existingProposalList.length} list records from storage. ` +
         `Mode: ${scrapeMode}, listOnly: ${scrapeArchivedListOnly}, detailsFromList: ${scrapeDetailsFromSavedList}, ` +
+        `jobPostsFromList: ${scrapeJobPostsFromSavedList}, ` +
         `debuggerListCapture: ${useDebuggerProposalListCapture}, networkMonitor: ${useNetworkMonitor}`
     );
     if (useNetworkMonitor) {
@@ -1304,27 +1526,30 @@ async function scrapeProposals(options = {}) {
             .map(a => a.href)
             .join('|');
         
-        // Filter out already scraped proposals
-        const links = Array.from(table.querySelectorAll('tr')).map(row => {
-            const reasonCell = row.querySelector('td[data-qa="reason-slot"]');
-            const link = row.querySelector('a[href]');
-            if (!reasonCell || !link) return null;
-            
-            const reason = reasonCell.textContent.trim();
-            
-            // Skip rows outside the selected mode and already scraped URLs.
-            if (!isReasonAllowed(reason)) return null;
-            if (existingUrls.has(link.href)) return null;
-            
-            const title = (link.textContent || '').trim();
-            const timeCell = row.querySelector('td[data-cy="time-slot"]');
-            return {
-                href: link.href,
-                text: title,
-                reason: row.querySelector('td[data-qa="reason-slot"]').textContent.trim(),
-                submissionTime: extractSubmissionTime(timeCell)
-            };
-        }).filter(Boolean);
+        // In debugger list-capture mode, list items are sourced from GraphQL responses.
+        // Keep DOM usage limited to pagination state and table signatures.
+        const links = isDebuggerListCaptureMode
+            ? []
+            : Array.from(table.querySelectorAll('tr')).map(row => {
+                const reasonCell = row.querySelector('td[data-qa="reason-slot"]');
+                const link = row.querySelector('a[href]');
+                if (!reasonCell || !link) return null;
+
+                const reason = reasonCell.textContent.trim();
+
+                // Skip rows outside the selected mode and already scraped URLs.
+                if (!isReasonAllowed(reason)) return null;
+                if (existingUrls.has(link.href)) return null;
+
+                const title = (link.textContent || '').trim();
+                const timeCell = row.querySelector('td[data-cy="time-slot"]');
+                return {
+                    href: link.href,
+                    text: title,
+                    reason: row.querySelector('td[data-qa="reason-slot"]').textContent.trim(),
+                    submissionTime: extractSubmissionTime(timeCell)
+                };
+            }).filter(Boolean);
 
         const paginationState = parsePaginationState(proposalsDiv);
         
@@ -1359,7 +1584,10 @@ async function scrapeProposals(options = {}) {
             const checkInterval = setInterval(() => {
                 const result = scrapeCurrentPage();
                 if (result) {
-                    debugLog(`Table loaded. Page ${result.currentPage || '?'} of ${result.totalPages || '?'}. Eligible links: ${result.links.length}`);
+                    debugLog(
+                        `Table loaded. Page ${result.currentPage || '?'} of ${result.totalPages || '?'}. ` +
+                        `${isDebuggerListCaptureMode ? 'Eligible links: n/a (debugger capture mode)' : `Eligible links: ${result.links.length}`}`
+                    );
                     settle(result);
                 }
             }, 1000);
@@ -1411,6 +1639,55 @@ async function scrapeProposals(options = {}) {
                 resolve(null);
             }, 20000);
         });
+    };
+
+    const findPrevPageButton = (proposalsDiv) => (
+        proposalsDiv?.querySelector('button[data-test="prev-page"], a[data-test="prev-page"], button[data-ev-label="pagination_prev_page"], a[data-ev-label="pagination_prev_page"]') ||
+        document.querySelector('button[data-test="prev-page"], a[data-test="prev-page"], button[data-ev-label="pagination_prev_page"], a[data-ev-label="pagination_prev_page"]')
+    );
+
+    const warmupDebuggerCaptureForFirstPage = async (initialState) => {
+        if (!isDebuggerListCaptureMode || !initialState) {
+            return false;
+        }
+
+        const currentPageNumber = Number.parseInt(String(initialState.currentPage || ''), 10);
+        if (!Number.isFinite(currentPageNumber) || currentPageNumber !== 1) {
+            return false;
+        }
+
+        if (!initialState.nextButton || initialState.isNextDisabled) {
+            debugLog('[Warmup] Skipping first-page replay: next-page control unavailable on page 1.');
+            return false;
+        }
+
+        debugLog('[Warmup] Replaying page 1 via page 2 -> page 1 to force GraphQL capture.');
+
+        initialState.nextButton.click();
+        const movedForward = await waitForNextPageLoad(initialState.currentPage, initialState.tableSignature);
+        if (!movedForward) {
+            debugLog('[Warmup] Could not detect move to page 2; continuing without replay.');
+            return false;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 800));
+
+        const prevButton = findPrevPageButton(movedForward.proposalsDiv);
+        if (!prevButton || isElementDisabled(prevButton)) {
+            debugLog('[Warmup] Could not find enabled previous-page control on page 2.');
+            return false;
+        }
+
+        prevButton.click();
+        const movedBack = await waitForNextPageLoad(movedForward.currentPage, movedForward.tableSignature);
+        if (!movedBack) {
+            debugLog('[Warmup] Could not detect move back to page 1; continuing from current page.');
+            return false;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        debugLog('[Warmup] First-page replay complete. Starting normal pagination.');
+        return true;
     };
 
     const getLinksFromStoredProposalList = () => {
@@ -1854,23 +2131,10 @@ async function scrapeProposals(options = {}) {
                 }
             };
 
-            const storageUpdate = await chrome.storage.local.get('jobPosts');
-            const jobPosts = Array.isArray(storageUpdate.jobPosts) ? storageUpdate.jobPosts : [];
-            const existingIndex = jobPosts.findIndex((entry) => {
-                const existingUrl = entry?.jobPostPage?.url || entry?.sourcePageUrl;
-                return existingUrl === normalizedJobUrl || existingUrl === currentPageUrl;
-            });
-
-            if (existingIndex >= 0) {
-                jobPosts[existingIndex] = jobPostRecord;
-            } else {
-                jobPosts.unshift(jobPostRecord);
-            }
-
-            await chrome.storage.local.set({ jobPosts });
+            await chrome.storage.local.set({ activeJobPost: [jobPostRecord] });
 
             updateStatus({
-                action: `${existingIndex >= 0 ? 'Job post updated' : 'Job post saved'}${errorState.total > 0 ? ` with ${errorState.total} tracked errors` : ''}. Closing in 3 seconds...`,
+                action: `Active job post saved${errorState.total > 0 ? ` with ${errorState.total} tracked errors` : ''}. Closing in 3 seconds...`,
                 listCurrent: '1',
                 listTotal: '1',
                 itemCurrent: 1,
@@ -1891,6 +2155,169 @@ async function scrapeProposals(options = {}) {
             }, 5000);
             return [];
         } finally {
+            teardownNetworkBridge();
+            await teardownSandboxBridge();
+        }
+    }
+
+    if (scrapeJobPostsFromSavedList) {
+        try {
+            const savedProposals = Array.isArray(storageData.proposals) ? storageData.proposals : [];
+            const seenJobUrls = new Set();
+            const jobTargets = [];
+            let eligibleProposalCount = 0;
+            let proposalsWithDerivedJobUrl = 0;
+
+            for (const proposal of savedProposals) {
+                const reason = String(proposal?.proposalListPage?.reason || '').trim();
+                if (!isReasonAllowed(reason)) {
+                    continue;
+                }
+                eligibleProposalCount += 1;
+
+                const jobUrl = extractJobPostUrlFromProposal(proposal);
+                if (!jobUrl) {
+                    continue;
+                }
+                proposalsWithDerivedJobUrl += 1;
+                if (seenJobUrls.has(jobUrl)) {
+                    continue;
+                }
+
+                seenJobUrls.add(jobUrl);
+                jobTargets.push({
+                    jobUrl,
+                    sourceProposalUrl: extractProposalUrl(proposal) || proposal?.proposalDetailsPage?.url || '',
+                    reason,
+                    proposal
+                });
+            }
+
+            if (!jobTargets.length) {
+                updateStatus({
+                    listCurrent: '1',
+                    listTotal: '1',
+                    itemCurrent: 0,
+                    itemTotal: 0,
+                    action: (
+                        'No saved proposal details with job URLs found. ' +
+                        `Detailed proposals in scope: ${eligibleProposalCount}/${savedProposals.length}; ` +
+                        `archived list entries: ${existingProposalList.length}.`
+                    )
+                });
+                setTimeout(() => {
+                    statusPopup.remove();
+                }, 4500);
+                return [];
+            }
+
+            updateStatus({
+                listCurrent: '1',
+                listTotal: '1',
+                itemCurrent: 0,
+                itemTotal: jobTargets.length,
+                action: (
+                    'Scraping job posts from saved proposal details ' +
+                    `(${jobTargets.length} unique jobs from ${eligibleProposalCount} detailed proposals; ` +
+                    `URL found in ${proposalsWithDerivedJobUrl}; ` +
+                    `archived list entries: ${existingProposalList.length}).`
+                )
+            });
+
+            const jobStorage = await chrome.storage.local.get('jobPosts');
+            const existingJobPosts = Array.isArray(jobStorage.jobPosts) ? jobStorage.jobPosts : [];
+            const jobPostsByUrl = new Map();
+            for (const entry of existingJobPosts) {
+                const existingUrl = String(entry?.jobPostPage?.url || entry?.sourcePageUrl || '').trim();
+                if (existingUrl) {
+                    jobPostsByUrl.set(existingUrl, entry);
+                }
+            }
+
+            const savedRecords = [];
+            let fallbackSavedCount = 0;
+            for (let index = 0; index < jobTargets.length; index += 1) {
+                const target = jobTargets[index];
+                while (isPaused) {
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+
+                updateStatus({
+                    listCurrent: '1',
+                    listTotal: '1',
+                    itemCurrent: index + 1,
+                    itemTotal: jobTargets.length,
+                    action: `Scraping saved job post ${index + 1}/${jobTargets.length}`
+                });
+
+                const jobPostFetchResult = await fetchJobPostRawData(target.jobUrl, target.sourceProposalUrl || target.jobUrl);
+                let jobPostData = jobPostFetchResult?.data || null;
+                let usedDetailsFallback = false;
+                if (!jobPostData || Object.keys(jobPostData).length === 0) {
+                    jobPostData = extractJobPostDataFallbackFromProposal(target.proposal, target.jobUrl);
+                    usedDetailsFallback = !!(jobPostData && Object.keys(jobPostData).length > 0);
+                }
+                if (!jobPostData || Object.keys(jobPostData).length === 0) {
+                    recordError('job_post_parse_empty', {
+                        message: 'No job post data parsed from fetched page or saved details fallback.',
+                        sourceUrl: target.jobUrl
+                    });
+                    continue;
+                }
+                if (usedDetailsFallback) {
+                    fallbackSavedCount += 1;
+                }
+
+                const normalizedJobUrl = jobPostData?.jobPost?.url || target.jobUrl;
+                const jobPostRecord = {
+                    sourcePageUrl: target.sourceProposalUrl || target.jobUrl,
+                    sourceProposalReason: target.reason || '',
+                    scrapedAt: new Date().toISOString(),
+                    jobPostPage: {
+                        url: normalizedJobUrl,
+                        data: jobPostData
+                    },
+                    source: 'saved-proposal-details'
+                };
+
+                jobPostsByUrl.set(normalizedJobUrl, jobPostRecord);
+                savedRecords.push(jobPostRecord);
+                if (savedRecords.length % 5 === 0 || index === jobTargets.length - 1) {
+                    await chrome.storage.local.set({ jobPosts: Array.from(jobPostsByUrl.values()) });
+                }
+                runMetrics.processedItems += 1;
+                updateStatus();
+                await new Promise(resolve => setTimeout(resolve, 600));
+            }
+
+            await chrome.storage.local.set({ jobPosts: Array.from(jobPostsByUrl.values()) });
+
+            updateStatus({
+                listCurrent: '1',
+                listTotal: '1',
+                itemCurrent: savedRecords.length,
+                itemTotal: jobTargets.length,
+                action: (
+                    `Job post scraping from saved details done (${savedRecords.length}/${jobTargets.length} saved` +
+                    `${fallbackSavedCount > 0 ? `, fallback from details: ${fallbackSavedCount}` : ''}). Closing in 3 seconds...`
+                )
+            });
+            setTimeout(() => {
+                statusPopup.remove();
+            }, 3000);
+
+            return savedRecords;
+        } catch (error) {
+            updateStatus({
+                action: `Error: ${error.message}${errorState.total > 0 ? ` (tracked errors: ${errorState.total})` : ''}`
+            });
+            console.error('Saved-list job post scraping error:', error);
+            setTimeout(() => {
+                statusPopup.remove();
+            }, 5000);
+            return [];
+        } finally {
+            teardownNetworkBridge();
             await teardownSandboxBridge();
         }
     }
@@ -2128,6 +2555,7 @@ async function scrapeProposals(options = {}) {
 
     try {
         let interceptedMissCount = 0;
+        let ranDebuggerFirstPageWarmup = false;
         if (scrapeDetailsFromSavedList) {
             const links = getLinksFromStoredProposalList();
             if (!existingProposalList.length) {
@@ -2188,7 +2616,17 @@ async function scrapeProposals(options = {}) {
                     break;
                 }
 
-                const currentPageResult = mergeTableAndInterceptedData(result, pendingInterceptedPageData);
+                if (isDebuggerListCaptureMode && !ranDebuggerFirstPageWarmup) {
+                    ranDebuggerFirstPageWarmup = true;
+                    const warmedUp = await warmupDebuggerCaptureForFirstPage(result);
+                    if (warmedUp) {
+                        continue;
+                    }
+                }
+
+                const currentPageResult = isDebuggerListCaptureMode
+                    ? result
+                    : mergeTableAndInterceptedData(result, pendingInterceptedPageData);
                 pendingInterceptedPageData = null;
                 const { links, currentPage, totalPages, tableSignature } = currentPageResult;
                 const listCurrent = currentPage || progressState.listCurrent;
@@ -2199,12 +2637,14 @@ async function scrapeProposals(options = {}) {
                     listTotal,
                     itemCurrent: 0,
                     itemTotal: links.length,
-                    action: links.length > 0
+                    action: isDebuggerListCaptureMode
+                        ? 'Capturing archived list entries from GraphQL responses'
+                        : (links.length > 0
                         ? (scrapeArchivedListOnly ? 'Collecting archived list entries' : 'Opening proposals')
-                        : `No new proposals on page ${listCurrent || '?'}`
+                        : 'No new proposals in current segment')
                 });
                 
-                if (links.length === 0) {
+                if (links.length === 0 && !isDebuggerListCaptureMode) {
                     debugLog(`No new ${modeSummaryText} on page ${currentPage || '?'}.`);
                 }
 
@@ -2252,7 +2692,7 @@ async function scrapeProposals(options = {}) {
                 const nextButton = latestPageState.nextButton;
                 if (!nextButton || latestPageState.isNextDisabled) {
                     updateStatus({
-                        action: 'Reached last page, finishing up...',
+                        action: 'Reached end of list, finishing up...',
                         listCurrent: latestPageState.currentPage || listCurrent,
                         listTotal: latestPageState.totalPages || listTotal,
                         itemCurrent: links.length,
@@ -2266,7 +2706,7 @@ async function scrapeProposals(options = {}) {
                 }
 
                 updateStatus({
-                    action: 'Moving to next page...',
+                    action: 'Loading next segment...',
                     listCurrent,
                     listTotal,
                     itemCurrent: links.length,
@@ -2311,12 +2751,19 @@ async function scrapeProposals(options = {}) {
             await upsertArchivedProposalListEntries(allLinks, 'final run merge');
         }
 
+        let archivedListRunCount = allLinks.length;
+        if (isDebuggerListCaptureMode) {
+            const finalStorage = await chrome.storage.local.get('proposalList');
+            const finalProposalList = Array.isArray(finalStorage?.proposalList) ? finalStorage.proposalList : [];
+            archivedListRunCount = Math.max(finalProposalList.length - initialProposalListCount, 0);
+        }
+
         const completionDelayMs = errorState.total > 0 ? 8000 : 3000;
         updateStatus({
             action: errorState.total > 0
                 ? `All done with ${errorState.total} tracked errors. Closing in 8 seconds...`
                 : (scrapeArchivedListOnly
-                    ? `Archived list done (${allLinks.length} entries this run). Closing in 3 seconds...`
+                    ? `Archived list done (${archivedListRunCount} entries this run). Closing in 3 seconds...`
                     : (scrapeDetailsFromSavedList
                         ? `Proposal details from saved list done (${allLinks.length} entries this run). Closing in 3 seconds...`
                         : 'All done! Closing in 3 seconds...'))

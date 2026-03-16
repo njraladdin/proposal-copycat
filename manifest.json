@@ -13,7 +13,8 @@
     "activeTab",
     "debugger",
     "scripting",
-    "storage"
+    "storage",
+    "unlimitedStorage"
   ],
   "host_permissions": [
     "https://www.upwork.com/*"
