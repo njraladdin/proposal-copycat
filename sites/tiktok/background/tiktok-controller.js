@@ -34,7 +34,6 @@ async function handleTiktokCommentScraping(maxLimit, sendResponse) {
             });
         });
 
-        const scraperResponse = result?.result;
         if (!scraperResponse || !scraperResponse.success) {
             sendResponse({ success: false, error: scraperResponse?.error || 'Failed to extract comments.' });
             return;
