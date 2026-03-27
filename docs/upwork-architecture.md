@@ -85,6 +85,7 @@ Purpose:
 - iterate saved proposal list links
 - capture detailed proposal GraphQL payloads
 - save enriched detail records into `proposals`
+- keep raw debugger payloads and cleaned page-derived detail data side by side
 
 How it runs:
 
@@ -93,11 +94,23 @@ How it runs:
 3. Background controller attaches Chrome debugger.
 4. `runDebuggerProposalDetailsFlow(...)` navigates one saved proposal URL at a time.
 5. GraphQL detail responses are intercepted and stored.
-6. Progress is written to the shared Upwork run status model.
+6. Page-derived detail supplements are merged into `proposalDetailsPage.pageData` when available.
+7. Progress is written to the shared Upwork run status model.
 
 Primary storage output:
 
 - `chrome.storage.local.proposals`
+
+Important storage shape notes:
+
+- `proposalDetailsPage.rawGraphql`
+  - raw debugger-captured details response
+- `proposalDetailsPage.pageData`
+  - cleaned page-derived details payload
+- `proposalDetailsPage.pageDataSources`
+  - which page extraction sources contributed to `pageData`
+- `proposalDetailsPage.pageData.proposal.attachedHighlights`
+  - highlights attached to the proposal page, not general freelancer profile highlights
 
 Important code:
 

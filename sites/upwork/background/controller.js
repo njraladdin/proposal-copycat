@@ -20,6 +20,8 @@ const DEBUGGER_LOG_PREFIX = '[ProposalCopycatDebugger]';
 const DEBUGGER_VERBOSE_LOGS = false;
 const DEBUGGER_DETAILS_RESPONSE_WAIT_MS = 12000;
 const DEBUGGER_DETAILS_INTER_ITEM_DELAY_MS = 250;
+const DEBUGGER_DETAILS_DOM_WAIT_MS = 4000;
+const DEBUGGER_DETAILS_DOM_POLL_MS = 200;
 const DEBUGGER_STOP_REQUESTED_ERROR_CODE = 'proposal_copycat_stop_requested';
 
 const upworkRunStatusModule = globalThis.ProposalCopycatUpworkRunStatusModule || {};
@@ -739,6 +741,72 @@ function maybeSetNestedJobUrl(data, jobUrl) {
     };
 }
 
+function mergeProposalDetailsPageData(existingData, incomingData, jobUrl = '') {
+    const baseData = existingData && typeof existingData === 'object'
+        ? { ...existingData }
+        : {};
+    const nextData = incomingData && typeof incomingData === 'object'
+        ? incomingData
+        : null;
+
+    const mergeSection = (sectionKey) => {
+        const existingSection = baseData?.[sectionKey];
+        const incomingSection = nextData?.[sectionKey];
+        const hasExistingSection = existingSection && typeof existingSection === 'object' && !Array.isArray(existingSection);
+        const hasIncomingSection = incomingSection && typeof incomingSection === 'object' && !Array.isArray(incomingSection);
+
+        if (!hasExistingSection && !hasIncomingSection) {
+            return;
+        }
+
+        baseData[sectionKey] = {
+            ...(hasExistingSection ? existingSection : {}),
+            ...(hasIncomingSection ? incomingSection : {})
+        };
+    };
+
+    mergeSection('freelancer');
+    mergeSection('client');
+    mergeSection('jobPost');
+    mergeSection('proposal');
+
+    if (
+        baseData?.proposal &&
+        typeof baseData.proposal === 'object' &&
+        !Array.isArray(baseData.proposal)
+    ) {
+        const existingTerms = existingData?.proposal?.terms;
+        const incomingTerms = nextData?.proposal?.terms;
+        const hasExistingTerms = existingTerms && typeof existingTerms === 'object' && !Array.isArray(existingTerms);
+        const hasIncomingTerms = incomingTerms && typeof incomingTerms === 'object' && !Array.isArray(incomingTerms);
+
+        if (hasExistingTerms || hasIncomingTerms) {
+            baseData.proposal = {
+                ...baseData.proposal,
+                terms: {
+                    ...(hasExistingTerms ? existingTerms : {}),
+                    ...(hasIncomingTerms ? incomingTerms : {})
+                }
+            };
+        }
+    }
+
+    for (const key of Object.keys(baseData)) {
+        const value = baseData[key];
+        if (
+            value &&
+            typeof value === 'object' &&
+            !Array.isArray(value) &&
+            Object.keys(value).length === 0
+        ) {
+            delete baseData[key];
+        }
+    }
+
+    const withJobUrl = maybeSetNestedJobUrl(baseData, jobUrl);
+    return withJobUrl && Object.keys(withJobUrl).length > 0 ? withJobUrl : null;
+}
+
 async function repairSavedJobPostUrls() {
     const storageData = await chrome.storage.local.get(['proposalList', 'proposals', 'jobPosts']);
     const proposalList = Array.isArray(storageData.proposalList) ? storageData.proposalList : [];
@@ -922,8 +990,75 @@ async function upsertProposalDetailsEntry(detailEntry, sourceLabel = 'debugger:d
     const existingRecord = existingIndex >= 0 ? (proposals[existingIndex] || {}) : {};
     const scrapedAtIso = new Date().toISOString();
     const isHired = /hired/i.test(String(normalized.reason || ''));
-    const rawGraphql = detailEntry?.rawGraphql ?? null;
+    const hasIncomingRawGraphql = !!(
+        detailEntry &&
+        Object.prototype.hasOwnProperty.call(detailEntry, 'rawGraphql')
+    );
+    const rawGraphql = hasIncomingRawGraphql
+        ? detailEntry.rawGraphql
+        : (existingRecord?.proposalDetailsPage?.rawGraphql ?? null);
     const extractedJobPostHref = extractJobPostHrefFromDetailsPayload(rawGraphql);
+    const incomingPageData = detailEntry?.pageData || detailEntry?.data || null;
+    const mergedPageData = mergeProposalDetailsPageData(
+        existingRecord?.proposalDetailsPage?.pageData || existingRecord?.proposalDetailsPage?.data,
+        incomingPageData,
+        extractedJobPostHref || existingRecord?.proposalDetailsPage?.jobPostHref || ''
+    );
+    const hasMergedPageData = !!(
+        mergedPageData &&
+        typeof mergedPageData === 'object' &&
+        Object.keys(mergedPageData).length > 0
+    );
+    const hasExistingDebuggerCapture = /debugger-graphql/i.test(
+        String(existingRecord?.proposalDetailsPage?.captureMethod || '')
+    ) || rawGraphql != null;
+    const hasIncomingPageData = !!incomingPageData;
+    const pageDataSources = Array.from(new Set([
+        ...(
+            Array.isArray(existingRecord?.proposalDetailsPage?.pageDataSources)
+                ? existingRecord.proposalDetailsPage.pageDataSources
+                : []
+        ),
+        ...(hasIncomingPageData ? ['dom'] : [])
+    ]));
+    const captureMethod = hasIncomingRawGraphql
+        ? (hasMergedPageData ? 'debugger-graphql+page' : 'debugger-graphql')
+        : (
+            hasIncomingPageData && hasExistingDebuggerCapture
+                ? 'debugger-graphql+page'
+                : (
+                    existingRecord?.proposalDetailsPage?.captureMethod ||
+                    (hasMergedPageData ? 'page' : 'debugger-graphql')
+                )
+        );
+    const nextProposalDetailsPage = {
+        ...(existingRecord.proposalDetailsPage || {}),
+        url: href,
+        rawGraphql,
+        graphqlAlias: DEBUGGER_DETAILS_ALIAS,
+        source: hasIncomingRawGraphql
+            ? sourceLabel
+            : (existingRecord?.proposalDetailsPage?.source || sourceLabel),
+        capturedAt: hasIncomingRawGraphql
+            ? scrapedAtIso
+            : (existingRecord?.proposalDetailsPage?.capturedAt || scrapedAtIso),
+        captureMethod,
+        jobPostHref: extractedJobPostHref || existingRecord?.proposalDetailsPage?.jobPostHref || null
+    };
+    delete nextProposalDetailsPage.data;
+    delete nextProposalDetailsPage.domSupplementedAt;
+    delete nextProposalDetailsPage.domSupplementalSource;
+
+    if (hasMergedPageData) {
+        nextProposalDetailsPage.pageData = mergedPageData;
+    }
+    if (pageDataSources.length > 0) {
+        nextProposalDetailsPage.pageDataSources = pageDataSources;
+    }
+    if (incomingPageData) {
+        nextProposalDetailsPage.pageDataUpdatedAt = scrapedAtIso;
+        nextProposalDetailsPage.pageDataLastSource = sourceLabel;
+    }
 
     const nextRecord = {
         ...existingRecord,
@@ -940,15 +1075,7 @@ async function upsertProposalDetailsEntry(detailEntry, sourceLabel = 'debugger:d
                     : isHired
             )
         },
-        proposalDetailsPage: {
-            url: href,
-            rawGraphql,
-            graphqlAlias: DEBUGGER_DETAILS_ALIAS,
-            source: sourceLabel,
-            capturedAt: scrapedAtIso,
-            captureMethod: 'debugger-graphql',
-            jobPostHref: extractedJobPostHref || null
-        },
+        proposalDetailsPage: nextProposalDetailsPage,
         jobPostPage: {
             ...(existingRecord.jobPostPage || {}),
             url: extractedJobPostHref || existingRecord?.jobPostPage?.url || null
@@ -1054,6 +1181,200 @@ async function logDebuggerToTab(tabId, message) {
         });
     } catch (error) {
         // Ignore tab-console mirror failures.
+    }
+}
+
+async function extractProposalDomSupplementalData(tabId, href = '') {
+    try {
+        const executionResults = await chrome.scripting.executeScript({
+            target: { tabId },
+            func: async (options = {}) => {
+                const normalizeMultilineText = (value) => {
+                    const normalized = String(value || '')
+                        .replace(/\u00a0/g, ' ')
+                        .replace(/\r\n?/g, '\n')
+                        .split('\n')
+                        .map((line) => line.replace(/[ \t]+/g, ' ').trim())
+                        .join('\n')
+                        .replace(/\n{3,}/g, '\n\n')
+                        .trim();
+
+                    return normalized || null;
+                };
+
+                const normalizeInlineText = (value) => {
+                    const normalized = String(value || '')
+                        .replace(/\u00a0/g, ' ')
+                        .replace(/\s+/g, ' ')
+                        .trim();
+
+                    return normalized || null;
+                };
+
+                const parseConnectsCount = (value) => {
+                    const match = String(value || '').match(/(\d+)\s+connects?\b/i);
+                    if (!match) {
+                        return null;
+                    }
+
+                    const parsed = Number.parseInt(match[1], 10);
+                    return Number.isFinite(parsed) ? parsed : null;
+                };
+
+                const readDomSupplement = () => {
+                    const data = {};
+                    const proposal = {};
+                    const terms = {};
+
+                    const coverLetterSection = document.querySelector('[data-cy="cover-letter-section"]');
+                    if (coverLetterSection) {
+                        const contentNode =
+                            coverLetterSection.querySelector('p.text-pre-line') ||
+                            coverLetterSection.querySelector('.air3-card-section .text-pre-line') ||
+                            coverLetterSection.querySelector('.air3-card-section p.break') ||
+                            coverLetterSection.querySelector('.air3-card-section p');
+                        const coverLetter = normalizeMultilineText(contentNode?.textContent || '');
+                        if (coverLetter) {
+                            proposal.coverLetter = coverLetter;
+                        }
+                    }
+
+                    const attachedHighlightsSection = document.querySelector('.profile-highlights-section');
+                    if (attachedHighlightsSection) {
+                        const description = normalizeInlineText(
+                            attachedHighlightsSection.querySelector('header .subtitle')?.textContent || ''
+                        );
+                        const items = Array.from(
+                            attachedHighlightsSection.querySelectorAll('[data-test="highlights-item"]')
+                        )
+                            .map((item) => {
+                                const secondaryTexts = Array.from(item.querySelectorAll('.secondary-text'))
+                                    .map((node) => normalizeInlineText(node.textContent))
+                                    .filter(Boolean);
+                                const title = normalizeInlineText(
+                                    item.querySelector('.item-title')?.textContent || ''
+                                );
+                                const meta = normalizeInlineText(
+                                    item.querySelector('.work-history-info')?.textContent || ''
+                                ) || secondaryTexts.slice(1).join(' | ') || null;
+                                const normalizedItem = {};
+
+                                if (secondaryTexts[0]) {
+                                    normalizedItem.type = secondaryTexts[0];
+                                }
+                                if (title) {
+                                    normalizedItem.title = title;
+                                }
+                                if (meta) {
+                                    normalizedItem.meta = meta;
+                                }
+
+                                return Object.keys(normalizedItem).length > 0 ? normalizedItem : null;
+                            })
+                            .filter(Boolean);
+
+                        const attachedHighlights = {};
+                        if (description) {
+                            attachedHighlights.description = description;
+                        }
+                        if (items.length > 0) {
+                            attachedHighlights.items = items;
+                        }
+                        if (Object.keys(attachedHighlights).length > 0) {
+                            proposal.attachedHighlights = attachedHighlights;
+                        }
+                    }
+
+                    const boostSection = document.querySelector('.boost-information-section');
+                    if (boostSection) {
+                        const connectsText = normalizeInlineText(
+                            boostSection.querySelector('strong')?.textContent ||
+                            boostSection.querySelector('.text-body')?.textContent ||
+                            boostSection.textContent ||
+                            ''
+                        );
+                        const connectsSpent = parseConnectsCount(connectsText);
+                        if (connectsSpent !== null) {
+                            terms.connectsSpent = connectsSpent;
+                        }
+                    }
+
+                    if (Object.keys(terms).length > 0) {
+                        proposal.terms = terms;
+                    }
+                    if (Object.keys(proposal).length > 0) {
+                        data.proposal = proposal;
+                    }
+
+                    return Object.keys(data).length > 0 ? data : null;
+                };
+
+                const hasData = (payload) => !!(
+                    payload?.proposal?.coverLetter ||
+                    payload?.proposal?.terms?.connectsSpent !== undefined ||
+                    payload?.proposal?.attachedHighlights?.description ||
+                    (
+                        Array.isArray(payload?.proposal?.attachedHighlights?.items) &&
+                        payload.proposal.attachedHighlights.items.length > 0
+                    )
+                );
+
+                const timeoutMs = Number(options?.timeoutMs) > 0 ? Number(options.timeoutMs) : 4000;
+                const pollMs = Number(options?.pollMs) > 0 ? Number(options.pollMs) : 200;
+                const deadline = Date.now() + timeoutMs;
+                let lastPayload = readDomSupplement();
+
+                if (hasData(lastPayload)) {
+                    return lastPayload;
+                }
+
+                while (Date.now() < deadline) {
+                    await new Promise((resolve) => setTimeout(resolve, pollMs));
+                    lastPayload = readDomSupplement();
+                    if (hasData(lastPayload)) {
+                        return lastPayload;
+                    }
+                }
+
+                return lastPayload;
+            },
+            args: [{
+                timeoutMs: DEBUGGER_DETAILS_DOM_WAIT_MS,
+                pollMs: DEBUGGER_DETAILS_DOM_POLL_MS
+            }]
+        });
+
+        const result = executionResults?.[0]?.result || null;
+        const coverLetterLength = result?.proposal?.coverLetter
+            ? result.proposal.coverLetter.length
+            : 0;
+        const connectsSpent = result?.proposal?.terms?.connectsSpent;
+        const attachedHighlightsCount = Array.isArray(result?.proposal?.attachedHighlights?.items)
+            ? result.proposal.attachedHighlights.items.length
+            : 0;
+        const hasData = !!(
+            coverLetterLength > 0 ||
+            connectsSpent !== undefined ||
+            attachedHighlightsCount > 0 ||
+            result?.proposal?.attachedHighlights?.description
+        );
+        const summaryMessage = (
+            `${DEBUGGER_LOG_PREFIX} DOM supplement ${hasData ? 'captured' : 'empty'} ` +
+            `href=${href || 'unknown'} coverLetter=${coverLetterLength} ` +
+            `attachedHighlights=${attachedHighlightsCount} connectsSpent=${connectsSpent ?? 'none'}`
+        );
+
+        console.log(summaryMessage);
+        await logDebuggerToTab(tabId, summaryMessage);
+        return hasData ? result : null;
+    } catch (error) {
+        const errorMessage = (
+            `${DEBUGGER_LOG_PREFIX} DOM supplement failed ` +
+            `href=${href || 'unknown'} error=${error?.message || 'unknown error'}`
+        );
+        console.warn(errorMessage, error);
+        await logDebuggerToTab(tabId, errorMessage);
+        return null;
     }
 }
 
@@ -1599,6 +1920,16 @@ async function runDebuggerProposalDetailsFlow(tabId, scrapeMode) {
 
         if (capturedPayload) {
             captured += 1;
+            const domSupplementalData = await extractProposalDomSupplementalData(tabId, link.href);
+            if (domSupplementalData) {
+                await queueProposalDetailsUpsert(
+                    {
+                        ...link,
+                        pageData: domSupplementalData
+                    },
+                    'debugger:dom'
+                );
+            }
             await queueUpworkRunStatusUpdate({
                 totalSaved: proposals.length + captured
             });

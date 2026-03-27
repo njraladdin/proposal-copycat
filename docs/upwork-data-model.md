@@ -47,6 +47,8 @@ Common subtrees:
 - `proposalListPage`
 - `proposalDetailsPage`
 - `proposalDetailsPage.rawGraphql`
+- `proposalDetailsPage.pageData`
+- `proposalDetailsPage.pageDataSources`
 - `proposalDetailsPage.jobPostHref`
 - `jobPostPage`
 
@@ -54,6 +56,34 @@ Usage:
 
 - created by proposal details capture
 - used later to derive saved job post captures
+
+Notes:
+
+- `proposalDetailsPage.rawGraphql` is the raw debugger-captured GraphQL payload when available.
+- `proposalDetailsPage.pageData` is the cleaned, page-extracted proposal details payload.
+- `proposalDetailsPage.pageDataSources` describes how `pageData` was built, for example `["nuxt"]`, `["dom"]`, or `["nuxt", "dom"]`.
+- Older saved records may still contain legacy `proposalDetailsPage.data`; current code reads both, but new writes use `pageData`.
+
+Common `proposalDetailsPage.pageData` subtrees:
+
+- `freelancer`
+- `client`
+- `jobPost`
+- `proposal`
+
+Common `proposalDetailsPage.pageData.proposal` fields:
+
+- `coverLetter`
+- `proposalUrl`
+- `terms`
+- `answersToQuestions`
+- `competitionStats`
+- `attachedHighlights`
+
+Common `proposalDetailsPage.pageData.proposal.terms` fields:
+
+- `proposedRate`
+- `connectsSpent`
 
 ### `activeJobPost[]`
 
