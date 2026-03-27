@@ -4,15 +4,15 @@
 <div class="data-preview" style="margin-bottom: 12px;">
   <div class="data-preview-header">
     <div>
-      <div class="data-preview-title">Live Run Status</div>
+      <div class="data-preview-title">Current Upwork Run</div>
       <p class="subtle-note" id="liveRunMode" style="margin: 4px 0 0 0;">Mode: -</p>
     </div>
     <div class="toolbar-actions">
-      <button id="toggleUpworkRunPause" class="copy-json-btn" disabled>Pause Collection</button>
-      <button id="stopUpworkRun" class="copy-json-btn" disabled>Stop Collection</button>
+      <button id="toggleUpworkRunPause" class="copy-json-btn" disabled>Pause Run</button>
+      <button id="stopUpworkRun" class="copy-json-btn" disabled>Stop Run</button>
     </div>
   </div>
-  <p class="subtle-note" id="liveRunHeadline">No active Upwork page run.</p>
+  <p class="subtle-note" id="liveRunHeadline">No active Upwork run.</p>
   <div class="raw-json-toolbar">
     <span id="liveRunCounts">Items: -</span>
     <span id="liveRunEta">ETA: -</span>
@@ -41,8 +41,8 @@
 <section id="proposalsPanel" class="site-tab-panel active">
   <div class="controls">
     <div class="control-left">
-      <button id="startListScraping">1) Capture Proposal List</button>
-      <button id="startScraping">2) Capture Proposal Details</button>
+      <button id="startListScraping">Capture Proposal List</button>
+      <button id="startScraping">Capture Proposal Details</button>
       <button id="clearData" class="clear-btn">Clear Proposal Data</button>
     </div>
     <div class="control-right">
@@ -54,24 +54,9 @@
     </div>
   </div>
 
-  <div class="data-preview" style="margin-bottom: 12px;">
-    <div class="data-preview-header">
-      <div class="data-preview-title">Step 2 Run Status</div>
-    </div>
-    <p class="subtle-note" id="detailsStatusHeadline">No recent run summary yet.</p>
-    <div class="raw-json-toolbar">
-      <span id="detailsStatusCounts">Progress: -</span>
-      <span id="detailsStatusEta">ETA: -</span>
-    </div>
-    <div class="raw-json-toolbar" style="margin-top: 4px;">
-      <span id="detailsStatusCurrent">Current: -</span>
-      <span id="detailsStatusTimes">Started: -</span>
-    </div>
-  </div>
-
   <div class="data-preview">
     <div class="data-preview-header">
-      <div class="data-preview-title">Step 1: Proposal List (<span id="proposalListCount">0</span>)</div>
+      <div class="data-preview-title">Proposal List Dataset (<span id="proposalListCount">0</span>)</div>
     </div>
     <p class="subtle-note">Captured from archived proposals pagination.</p>
     <div class="raw-json-toolbar">
@@ -88,7 +73,7 @@
 
   <div class="data-preview" style="margin-top: 12px;">
     <div class="data-preview-header">
-      <div class="data-preview-title">Step 2: Proposal Details (<span id="proposalCount">0</span>)</div>
+      <div class="data-preview-title">Proposal Details Dataset (<span id="proposalCount">0</span>)</div>
     </div>
     <p class="subtle-note">Built from saved proposal list entries via details capture.</p>
     <div class="raw-json-toolbar">
@@ -110,7 +95,7 @@
   <div class="controls">
     <div class="control-left">
       <button id="startJobScraping">Scrape Active Job Page</button>
-      <button id="startJobFromListScraping">3) Scrape From Saved Proposals</button>
+      <button id="startJobFromListScraping">Capture Job Posts From Saved Proposals</button>
       <button id="repairSavedJobUrls" class="clear-btn">Repair Saved URLs</button>
       <button id="clearCurrentJobPost" class="clear-btn">Clear Active Job Data</button>
       <button id="clearJobPosts" class="clear-btn">Clear Saved Job Data</button>

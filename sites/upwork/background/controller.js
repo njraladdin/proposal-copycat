@@ -1,4 +1,5 @@
 const INJECTED_SCRAPER_HELPER_FILES = [
+    'sites/upwork/shared/upwork-run-status.js',
     'sites/upwork/injected/job-post-page.js',
     'sites/upwork/injected/proposal-details-page.js',
     'sites/upwork/injected/proposal-list-page.js',
@@ -19,12 +20,33 @@ const DEBUGGER_LOG_PREFIX = '[ProposalCopycatDebugger]';
 const DEBUGGER_VERBOSE_LOGS = false;
 const DEBUGGER_DETAILS_RESPONSE_WAIT_MS = 12000;
 const DEBUGGER_DETAILS_INTER_ITEM_DELAY_MS = 250;
+const DEBUGGER_STOP_REQUESTED_ERROR_CODE = 'proposal_copycat_stop_requested';
+
+const upworkRunStatusModule = globalThis.ProposalCopycatUpworkRunStatusModule || {};
+const UPWORK_RUN_STATUS_STORAGE_KEY = upworkRunStatusModule.RUN_STATUS_STORAGE_KEY || 'upworkRunStatus';
+const UPWORK_RUN_CONTROL_STORAGE_KEY = upworkRunStatusModule.RUN_CONTROL_STORAGE_KEY || 'upworkRunControl';
+const createUpworkRunStatusPayload = typeof upworkRunStatusModule.createRunStatusPayload === 'function'
+    ? upworkRunStatusModule.createRunStatusPayload
+    : (value) => ({ ...(value || {}) });
+const getUpworkRunDescriptor = typeof upworkRunStatusModule.getRunDescriptor === 'function'
+    ? upworkRunStatusModule.getRunDescriptor
+    : (options = {}) => ({
+        runKind: 'proposal-list',
+        statusTitle: options?.scrapeMode === 'all' ? 'Collecting Proposals' : 'Collecting Successful Proposals',
+        modeBadgeText: options?.scrapeMode === 'all' ? 'All Proposals' : 'Successful Only'
+    });
+const normalizeUpworkRunControl = typeof upworkRunStatusModule.normalizeRunControl === 'function'
+    ? upworkRunStatusModule.normalizeRunControl
+    : (value = {}) => ({
+        paused: value?.paused === true,
+        stopRequested: value?.stopRequested === true
+    });
 
 const debuggerSessions = new Map();
 let debuggerListenersInstalled = false;
 let proposalListWriteQueue = Promise.resolve();
 let proposalDetailsWriteQueue = Promise.resolve();
-let proposalDetailsSummaryWriteQueue = Promise.resolve();
+let upworkRunStatusWriteQueue = Promise.resolve();
 
 function isReasonAllowedForMode(reason, scrapeMode) {
     if (scrapeMode === 'all') {
@@ -443,28 +465,101 @@ function queueProposalDetailsUpsert(detailEntry, sourceLabel) {
     return proposalDetailsWriteQueue;
 }
 
-function queueProposalDetailsSummaryUpdate(update, options = {}) {
-    proposalDetailsSummaryWriteQueue = proposalDetailsSummaryWriteQueue
+function queueUpworkRunStatusUpdate(update, options = {}) {
+    upworkRunStatusWriteQueue = upworkRunStatusWriteQueue
         .then(async () => {
             const reset = options?.reset === true;
-            const storage = await chrome.storage.local.get('proposalDetailsCaptureSummary');
+            const storage = await chrome.storage.local.get(UPWORK_RUN_STATUS_STORAGE_KEY);
             const previous = reset
                 ? {}
-                : (storage?.proposalDetailsCaptureSummary && typeof storage.proposalDetailsCaptureSummary === 'object'
-                    ? storage.proposalDetailsCaptureSummary
+                : (storage?.[UPWORK_RUN_STATUS_STORAGE_KEY] && typeof storage[UPWORK_RUN_STATUS_STORAGE_KEY] === 'object'
+                    ? storage[UPWORK_RUN_STATUS_STORAGE_KEY]
                     : {});
-            const nextSummary = {
+            const nextStatus = createUpworkRunStatusPayload({
                 ...previous,
                 ...(update || {})
-            };
-            await chrome.storage.local.set({ proposalDetailsCaptureSummary: nextSummary });
-            return nextSummary;
+            });
+            await chrome.storage.local.set({ [UPWORK_RUN_STATUS_STORAGE_KEY]: nextStatus });
+            return nextStatus;
         })
         .catch((error) => {
-            console.warn(`${DEBUGGER_LOG_PREFIX} failed to update proposal details summary:`, error);
+            console.warn(`${DEBUGGER_LOG_PREFIX} failed to update Upwork run status:`, error);
             return null;
         });
-    return proposalDetailsSummaryWriteQueue;
+    return upworkRunStatusWriteQueue;
+}
+
+async function setUpworkRunControlState(nextControl = {}) {
+    const normalizedControl = normalizeUpworkRunControl(nextControl);
+    await chrome.storage.local.set({
+        [UPWORK_RUN_CONTROL_STORAGE_KEY]: {
+            ...normalizedControl,
+            updatedAt: new Date().toISOString()
+        }
+    });
+    return normalizedControl;
+}
+
+async function getUpworkRunControlState() {
+    const storage = await chrome.storage.local.get(UPWORK_RUN_CONTROL_STORAGE_KEY);
+    return normalizeUpworkRunControl(storage?.[UPWORK_RUN_CONTROL_STORAGE_KEY]);
+}
+
+function createDebuggerStopRequestedError() {
+    const error = new Error('Stopped from the side panel.');
+    error.code = DEBUGGER_STOP_REQUESTED_ERROR_CODE;
+    return error;
+}
+
+function isDebuggerStopRequestedError(error) {
+    return error?.code === DEBUGGER_STOP_REQUESTED_ERROR_CODE;
+}
+
+async function waitForDebuggerRunControl(lastActiveAction) {
+    let control = await getUpworkRunControlState();
+    if (control.stopRequested) {
+        await queueUpworkRunStatusUpdate({
+            action: 'Stopping after current step...',
+            stopRequested: true,
+            isPaused: false
+        });
+        throw createDebuggerStopRequestedError();
+    }
+
+    if (!control.paused) {
+        await queueUpworkRunStatusUpdate({
+            action: lastActiveAction,
+            stopRequested: false,
+            isPaused: false
+        });
+        return control;
+    }
+
+    await queueUpworkRunStatusUpdate({
+        action: 'Paused',
+        isPaused: true,
+        stopRequested: false
+    });
+
+    while (control.paused) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        control = await getUpworkRunControlState();
+        if (control.stopRequested) {
+            await queueUpworkRunStatusUpdate({
+                action: 'Stopping after current step...',
+                stopRequested: true,
+                isPaused: false
+            });
+            throw createDebuggerStopRequestedError();
+        }
+    }
+
+    await queueUpworkRunStatusUpdate({
+        action: lastActiveAction,
+        isPaused: false,
+        stopRequested: false
+    });
+    return control;
 }
 
 async function upsertProposalListEntries(entries, sourceLabel = 'debugger') {
@@ -1285,6 +1380,10 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
     if (request.action === 'startScraping') {
         const scrapeMode = normalizeScrapeMode(request.scrapeMode);
         startScrapingFlow(scrapeMode).catch((error) => {
+            if (isDebuggerStopRequestedError(error)) {
+                console.log(`${DEBUGGER_LOG_PREFIX} proposal details capture stopped from side panel.`);
+                return;
+            }
             console.error('Failed to start proposal scraping:', error);
         });
         return;
@@ -1376,19 +1475,76 @@ async function buildPendingDetailLinks(scrapeMode) {
 
 async function runDebuggerProposalDetailsFlow(tabId, scrapeMode) {
     const { pending, proposalList, proposals } = await buildPendingDetailLinks(scrapeMode);
+    const runDescriptor = getUpworkRunDescriptor({
+        scrapeMode,
+        scrapeProposalDetailsFromList: true
+    });
     const startedAtIso = new Date().toISOString();
-    await queueProposalDetailsSummaryUpdate({
-        mode: scrapeMode,
-        startedAt: startedAtIso,
-        finishedAt: null,
+    const estimateEtaMs = (processedCount, totalCount) => {
+        if (!processedCount || processedCount <= 0 || totalCount <= processedCount) {
+            return null;
+        }
+
+        const elapsedMs = Math.max(Date.now() - Date.parse(startedAtIso), 0);
+        if (!Number.isFinite(elapsedMs) || elapsedMs <= 0) {
+            return null;
+        }
+
+        const avgMsPerItem = elapsedMs / processedCount;
+        return Number.isFinite(avgMsPerItem) && avgMsPerItem > 0
+            ? Math.max((totalCount - processedCount) * avgMsPerItem, 0)
+            : null;
+    };
+    const buildErrorSummary = (timedOut, failedCount) => {
+        const parts = [];
+        if (timedOut > 0) {
+            parts.push(`timeout: ${timedOut}`);
+        }
+        if (failedCount > 0) {
+            parts.push(`failed: ${failedCount}`);
+        }
+        return parts.join(', ');
+    };
+    const buildRecentErrors = (timedOut, failureMessage = '') => {
+        const entries = [];
+        if (failureMessage) {
+            entries.push({
+                type: 'run_failure',
+                message: failureMessage
+            });
+        }
+        if (timedOut > 0) {
+            entries.push({
+                type: 'detail_timeout',
+                message: `${timedOut} detail capture timeout${timedOut === 1 ? '' : 's'}`
+            });
+        }
+        return entries;
+    };
+    await setUpworkRunControlState({ paused: false, stopRequested: false });
+    await queueUpworkRunStatusUpdate({
+        ...runDescriptor,
+        action: 'Preparing saved proposal details...',
+        listProgressLabel: 'Run Scope',
+        listProgressText: pending.length > 0
+            ? `${pending.length} saved proposals pending details capture`
+            : 'Saved proposal list',
+        itemCurrent: 0,
+        itemTotal: pending.length,
+        totalSaved: proposals.length,
+        etaMs: null,
+        etaText: 'Calculating...',
+        errorTotal: 0,
+        errorSummary: '',
+        recentErrors: [],
+        isPaused: false,
+        stopRequested: false,
         inProgress: true,
-        totalPending: pending.length,
-        captured: 0,
-        timedOut: 0,
-        currentIndex: 0,
-        currentHref: '',
-        listSize: proposalList.length,
-        proposalsSize: proposals.length
+        status: 'running',
+        pauseSupported: true,
+        stopSupported: true,
+        startedAt: startedAtIso,
+        updatedAt: startedAtIso
     }, { reset: true });
     await logDebuggerToTab(
         tabId,
@@ -1398,11 +1554,18 @@ async function runDebuggerProposalDetailsFlow(tabId, scrapeMode) {
     if (!pending.length) {
         console.log(`${DEBUGGER_LOG_PREFIX} details run found no pending proposal links.`);
         await logDebuggerToTab(tabId, `${DEBUGGER_LOG_PREFIX} details run found no pending proposal links.`);
-        await queueProposalDetailsSummaryUpdate({
+        await queueUpworkRunStatusUpdate({
             inProgress: false,
-            finishedAt: new Date().toISOString(),
-            status: 'no-pending-links'
+            status: 'no-pending-links',
+            action: 'No saved proposal details left to capture.',
+            itemCurrent: 0,
+            itemTotal: 0,
+            etaMs: 0,
+            etaText: 'done',
+            pauseSupported: false,
+            stopSupported: false
         });
+        await setUpworkRunControlState({ paused: false, stopRequested: false });
         return;
     }
 
@@ -1410,9 +1573,19 @@ async function runDebuggerProposalDetailsFlow(tabId, scrapeMode) {
     let timedOut = 0;
     for (let index = 0; index < pending.length; index += 1) {
         const link = pending[index];
-        await queueProposalDetailsSummaryUpdate({
-            currentIndex: index + 1,
-            currentHref: link.href
+        const actionText = `Opening saved proposal ${index + 1} of ${pending.length}`;
+        await waitForDebuggerRunControl(actionText);
+        await queueUpworkRunStatusUpdate({
+            action: actionText,
+            itemCurrent: index + 1,
+            itemTotal: pending.length,
+            listProgressText: link.href,
+            totalSaved: proposals.length + captured,
+            etaMs: estimateEtaMs(index, pending.length),
+            etaText: index > 0 ? '' : 'Calculating...',
+            errorTotal: timedOut,
+            errorSummary: buildErrorSummary(timedOut, 0),
+            recentErrors: buildRecentErrors(timedOut)
         });
         setActiveDetailContext(tabId, link);
         await logDebuggerToTab(
@@ -1426,14 +1599,20 @@ async function runDebuggerProposalDetailsFlow(tabId, scrapeMode) {
 
         if (capturedPayload) {
             captured += 1;
-            await queueProposalDetailsSummaryUpdate({ captured });
+            await queueUpworkRunStatusUpdate({
+                totalSaved: proposals.length + captured
+            });
             await logDebuggerToTab(
                 tabId,
                 `${DEBUGGER_LOG_PREFIX} details ${index + 1}/${pending.length} captured alias=${capturedPayload.alias || 'unknown'} href=${link.href}`
             );
         } else {
             timedOut += 1;
-            await queueProposalDetailsSummaryUpdate({ timedOut });
+            await queueUpworkRunStatusUpdate({
+                errorTotal: timedOut,
+                errorSummary: buildErrorSummary(timedOut, 0),
+                recentErrors: buildRecentErrors(timedOut)
+            });
             console.warn(`${DEBUGGER_LOG_PREFIX} details capture timeout for ${link.href}`);
             await logDebuggerToTab(
                 tabId,
@@ -1445,14 +1624,25 @@ async function runDebuggerProposalDetailsFlow(tabId, scrapeMode) {
     }
 
     clearActiveDetailContext(tabId);
-    await queueProposalDetailsSummaryUpdate({
+    await queueUpworkRunStatusUpdate({
         inProgress: false,
-        finishedAt: new Date().toISOString(),
-        currentHref: '',
         status: 'completed',
-        captured,
-        timedOut
+        action: `Captured ${captured} proposal detail${captured === 1 ? '' : 's'}.`,
+        listProgressText: 'Saved proposal details',
+        itemCurrent: pending.length,
+        itemTotal: pending.length,
+        totalSaved: proposals.length + captured,
+        etaMs: 0,
+        etaText: 'done',
+        errorTotal: timedOut,
+        errorSummary: buildErrorSummary(timedOut, 0),
+        recentErrors: buildRecentErrors(timedOut),
+        isPaused: false,
+        stopRequested: false,
+        pauseSupported: false,
+        stopSupported: false
     });
+    await setUpworkRunControlState({ paused: false, stopRequested: false });
     await logDebuggerToTab(
         tabId,
         `${DEBUGGER_LOG_PREFIX} details run complete. captured=${captured} timedOut=${timedOut} total=${pending.length}`
@@ -1486,15 +1676,32 @@ async function startScrapingFlow(scrapeMode = DEFAULT_SCRAPE_MODE) {
         try {
             await runDebuggerProposalDetailsFlow(targetTabId, scrapeMode);
         } catch (error) {
-            await queueProposalDetailsSummaryUpdate({
+            const stopped = isDebuggerStopRequestedError(error);
+            await queueUpworkRunStatusUpdate({
                 inProgress: false,
-                finishedAt: new Date().toISOString(),
-                status: 'failed',
-                error: error?.message || 'unknown details capture failure'
+                status: stopped ? 'stopped' : 'failed',
+                action: stopped
+                    ? 'Stopped from the side panel.'
+                    : 'Proposal details capture failed.',
+                etaMs: 0,
+                etaText: 'done',
+                isPaused: false,
+                stopRequested: false,
+                pauseSupported: false,
+                stopSupported: false,
+                errorTotal: stopped ? 0 : 1,
+                errorSummary: stopped ? '' : 'failed: 1',
+                recentErrors: stopped
+                    ? []
+                    : [{
+                        type: 'run_failure',
+                        message: error?.message || 'unknown details capture failure'
+                    }]
             });
             throw error;
         }
     } finally {
+        await setUpworkRunControlState({ paused: false, stopRequested: false });
         await stopDebuggerCaptureForTab(targetTabId);
         await chrome.tabs.update(targetTabId, { url: ARCHIVED_PROPOSALS_URL });
     }

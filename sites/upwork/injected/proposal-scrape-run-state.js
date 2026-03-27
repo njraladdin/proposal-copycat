@@ -3,13 +3,25 @@
         return;
     }
 
-    const DEFAULT_RUN_STATUS_STORAGE_KEY = 'upworkRunStatus';
-    const DEFAULT_RUN_CONTROL_STORAGE_KEY = 'upworkRunControl';
     const STOP_REQUESTED_ERROR_CODE = 'proposal_copycat_stop_requested';
 
     const createScrapeRunState = (deps = {}) => {
-        const statusTitle = String(deps?.statusTitle || '');
-        const modeBadgeText = String(deps?.modeBadgeText || '');
+        const upworkRunStatusModule = globalThis.ProposalCopycatUpworkRunStatusModule || {};
+        const defaultRunDescriptor = typeof upworkRunStatusModule.getRunDescriptor === 'function'
+            ? upworkRunStatusModule.getRunDescriptor({
+                scrapeMode: deps?.scrapeMode,
+                scrapeCurrentJobPost: deps?.scrapeCurrentJobPost === true,
+                scrapeJobPostsFromSavedList: deps?.scrapeJobPostsFromSavedList === true,
+                scrapeArchivedListOnly: deps?.scrapeArchivedListOnly === true,
+                scrapeProposalDetailsFromList: deps?.scrapeDetailsFromSavedList === true
+            })
+            : {
+                runKind: 'proposal-list',
+                statusTitle: 'Collecting Proposals',
+                modeBadgeText: 'Successful Only'
+            };
+        const statusTitle = String(deps?.statusTitle || defaultRunDescriptor.statusTitle || '');
+        const modeBadgeText = String(deps?.modeBadgeText || defaultRunDescriptor.modeBadgeText || '');
         const scrapeCurrentJobPost = deps?.scrapeCurrentJobPost === true;
         const scrapeJobPostsFromSavedList = deps?.scrapeJobPostsFromSavedList === true;
         const scrapeArchivedListOnly = deps?.scrapeArchivedListOnly === true;
@@ -20,10 +32,10 @@
         const debugLog = typeof deps?.debugLog === 'function' ? deps.debugLog : () => {};
         const runStatusStorageKey = typeof deps?.runStatusStorageKey === 'string' && deps.runStatusStorageKey.trim()
             ? deps.runStatusStorageKey.trim()
-            : DEFAULT_RUN_STATUS_STORAGE_KEY;
+            : (upworkRunStatusModule.RUN_STATUS_STORAGE_KEY || 'upworkRunStatus');
         const runControlStorageKey = typeof deps?.runControlStorageKey === 'string' && deps.runControlStorageKey.trim()
             ? deps.runControlStorageKey.trim()
-            : DEFAULT_RUN_CONTROL_STORAGE_KEY;
+            : (upworkRunStatusModule.RUN_CONTROL_STORAGE_KEY || 'upworkRunControl');
 
         let lastActiveAction = 'Starting scraper...';
         let runStatusFlushTimer = null;
@@ -187,17 +199,7 @@
                         status: runLifecycle.status,
                         pauseSupported: true,
                         stopSupported: true,
-                        runKind: (
-                            scrapeCurrentJobPost
-                                ? 'current-job-post'
-                                : (scrapeJobPostsFromSavedList
-                                    ? 'job-posts-from-saved-list'
-                                    : (scrapeArchivedListOnly
-                                        ? 'archived-proposal-list'
-                                        : (scrapeDetailsFromSavedList
-                                            ? 'proposal-details-from-saved-list'
-                                            : 'proposal-list')))
-                        ),
+                        runKind: defaultRunDescriptor.runKind || 'proposal-list',
                         startedAt: runStartedAtIso,
                         updatedAt: new Date().toISOString()
                     }

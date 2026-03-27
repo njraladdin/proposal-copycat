@@ -2,14 +2,14 @@
 // Mounted by the shared side panel shell.
 
 window.mountUpworkPanel = function() {
+    const upworkRunStatusModule = globalThis.ProposalCopycatUpworkRunStatusModule || {};
     const UPWORK_JOB_POST_URL_PATTERN = /^https:\/\/www\.upwork\.com\/jobs\/[^/?#]+/i;
     const UPWORK_SUBTAB_STORAGE_KEY = 'upworkActiveSubTab';
-    const UPWORK_RUN_STATUS_STORAGE_KEY = 'upworkRunStatus';
-    const UPWORK_RUN_CONTROL_STORAGE_KEY = 'upworkRunControl';
+    const UPWORK_RUN_STATUS_STORAGE_KEY = upworkRunStatusModule.RUN_STATUS_STORAGE_KEY || 'upworkRunStatus';
+    const UPWORK_RUN_CONTROL_STORAGE_KEY = upworkRunStatusModule.RUN_CONTROL_STORAGE_KEY || 'upworkRunControl';
 
     let isAuthValid = true;
     let isOnJobPostPage = false;
-    let latestProposalDetailsSummary = null;
     let latestUpworkRunStatus = null;
     let latestUpworkRunControl = { paused: false, stopRequested: false };
     const DATASET_CONFIG = {
@@ -297,7 +297,7 @@ window.mountUpworkPanel = function() {
 
         if (!safeStatus) {
             modeEl.textContent = 'Mode: -';
-            headlineEl.textContent = 'No active Upwork page run.';
+            headlineEl.textContent = 'No active Upwork run.';
             countsEl.textContent = 'Items: -';
             etaEl.textContent = 'ETA: -';
             scopeEl.textContent = 'Scope: -';
@@ -307,9 +307,9 @@ window.mountUpworkPanel = function() {
             recentErrorsSectionEl.style.display = 'none';
             recentErrorsEl.innerHTML = '';
             pauseButton.disabled = true;
-            pauseButton.textContent = 'Pause Collection';
+            pauseButton.textContent = 'Pause Run';
             stopButton.disabled = true;
-            stopButton.textContent = 'Stop Collection';
+            stopButton.textContent = 'Stop Run';
             return;
         }
 
@@ -321,7 +321,7 @@ window.mountUpworkPanel = function() {
         const errorTotal = Number.parseInt(String(safeStatus.errorTotal || 0), 10) || 0;
         const etaMs = Number.parseInt(String(safeStatus.etaMs || 0), 10);
         const itemProgressText = itemTotal > 0 ? `${Math.min(itemCurrent, itemTotal)}/${itemTotal}` : '-';
-        const statusTitle = String(safeStatus.statusTitle || 'Latest run').trim() || 'Latest run';
+        const statusTitle = String(safeStatus.statusTitle || 'Current Upwork Run').trim() || 'Current Upwork Run';
         const actionText = String(safeStatus.action || (safeStatus.inProgress ? 'Running...' : 'Idle')).trim();
         const scopeLabel = String(safeStatus.listProgressLabel || 'Scope').trim() || 'Scope';
         const scopeText = String(safeStatus.listProgressText || '-').trim() || '-';
@@ -356,58 +356,9 @@ window.mountUpworkPanel = function() {
             recentErrorsEl.innerHTML = '';
         }
         pauseButton.disabled = !(safeStatus.inProgress && safeStatus.pauseSupported === true && !stopRequested);
-        pauseButton.textContent = paused ? 'Resume Collection' : 'Pause Collection';
+        pauseButton.textContent = paused ? 'Resume Run' : 'Pause Run';
         stopButton.disabled = !(safeStatus.inProgress && safeStatus.stopSupported === true) || stopRequested;
-        stopButton.textContent = stopRequested && safeStatus.inProgress ? 'Stopping...' : 'Stop Collection';
-    }
-
-    function renderProposalDetailsSummary(summary) {
-        const headlineEl = document.getElementById('detailsStatusHeadline');
-        const countsEl = document.getElementById('detailsStatusCounts');
-        const etaEl = document.getElementById('detailsStatusEta');
-        const currentEl = document.getElementById('detailsStatusCurrent');
-        const timesEl = document.getElementById('detailsStatusTimes');
-
-        if (!headlineEl || !countsEl || !etaEl || !currentEl || !timesEl) return;
-
-        const safeSummary = summary && typeof summary === 'object' ? summary : null;
-        latestProposalDetailsSummary = safeSummary;
-
-        if (!safeSummary) {
-            headlineEl.textContent = 'No recent run summary yet.';
-            countsEl.textContent = 'Progress: -';
-            etaEl.textContent = 'ETA: -';
-            currentEl.textContent = 'Current: -';
-            timesEl.textContent = 'Started: -';
-            return;
-        }
-
-        const status = String(safeSummary.status || (safeSummary.inProgress ? 'running' : 'idle'));
-        const total = Number.parseInt(String(safeSummary.totalPending || 0), 10) || 0;
-        const currentIndex = Number.parseInt(String(safeSummary.currentIndex || 0), 10) || 0;
-        const captured = Number.parseInt(String(safeSummary.captured || 0), 10) || 0;
-        const timedOut = Number.parseInt(String(safeSummary.timedOut || 0), 10) || 0;
-        const attempted = Math.max(captured + timedOut, Math.max(currentIndex - 1, 0));
-        const remaining = Math.max(total - attempted, 0);
-
-        headlineEl.textContent = safeSummary.inProgress
-            ? `Status: running (${status})`
-            : `Status: ${status}`;
-        countsEl.textContent = `Progress: ${attempted}/${total} | Captured: ${captured} | Timed out: ${timedOut}`;
-        currentEl.textContent = `Current: ${safeSummary.currentHref || '-'}`;
-
-        const startedMs = Date.parse(String(safeSummary.startedAt || ''));
-        const elapsedMs = Number.isFinite(startedMs) ? Math.max(Date.now() - startedMs, 0) : NaN;
-        if (safeSummary.inProgress && attempted > 0 && Number.isFinite(elapsedMs) && remaining > 0) {
-            const etaMs = (elapsedMs / attempted) * remaining;
-            etaEl.textContent = `ETA: ${formatDurationShort(etaMs)}`;
-        } else if (safeSummary.inProgress) {
-            etaEl.textContent = 'ETA: calculating...';
-        } else {
-            etaEl.textContent = 'ETA: done';
-        }
-
-        timesEl.textContent = `Started: ${formatDateTime(safeSummary.startedAt)} | Finished: ${formatDateTime(safeSummary.finishedAt)}`;
+        stopButton.textContent = stopRequested && safeStatus.inProgress ? 'Stopping...' : 'Stop Run';
     }
 
     function buildExportFilename(prefix) {
@@ -556,17 +507,6 @@ window.mountUpworkPanel = function() {
         const scrapeMode = normalizeScrapeMode(document.getElementById('scrapeMode').value);
         await chrome.storage.local.set({ scrapeMode });
         chrome.runtime.sendMessage({ action: 'startScraping', scrapeMode });
-        renderProposalDetailsSummary({
-            inProgress: true,
-            status: 'starting',
-            totalPending: latestProposalDetailsSummary?.totalPending || 0,
-            captured: 0,
-            timedOut: 0,
-            currentIndex: 0,
-            currentHref: '',
-            startedAt: new Date().toISOString(),
-            finishedAt: null
-        });
     });
 
     addClickListener('startJobScraping', async () => {
@@ -641,9 +581,8 @@ window.mountUpworkPanel = function() {
 
     addClickListener('clearProposalDetails', async () => {
         if (!confirm('Are you sure you want to clear captured proposal details data?')) return;
-        await chrome.storage.local.remove(['proposals', 'proposalDetailsCaptureSummary']);
+        await chrome.storage.local.remove(['proposals']);
         renderDatasetJson('proposals', []);
-        renderProposalDetailsSummary(null);
     });
 
     addClickListener('clearCurrentJobPost', async () => {
@@ -747,9 +686,6 @@ window.mountUpworkPanel = function() {
                 }
             }
         }
-        if (changes.proposalDetailsCaptureSummary) {
-            renderProposalDetailsSummary(changes.proposalDetailsCaptureSummary.newValue);
-        }
         if (changes[UPWORK_RUN_STATUS_STORAGE_KEY]) {
             renderLiveRunStatus(changes[UPWORK_RUN_STATUS_STORAGE_KEY].newValue, latestUpworkRunControl);
         }
@@ -762,7 +698,6 @@ window.mountUpworkPanel = function() {
 
     async function initializeUpworkPanel() {
         const data = await chrome.storage.local.get([
-            'proposalDetailsCaptureSummary',
             'scrapeMode',
             UPWORK_SUBTAB_STORAGE_KEY,
             UPWORK_RUN_STATUS_STORAGE_KEY,
@@ -776,7 +711,6 @@ window.mountUpworkPanel = function() {
         renderDatasetJson('activeJobPost', data.activeJobPost);
         renderDatasetJson('jobPosts', data.jobPosts);
         renderLiveRunStatus(data[UPWORK_RUN_STATUS_STORAGE_KEY], data[UPWORK_RUN_CONTROL_STORAGE_KEY]);
-        renderProposalDetailsSummary(data.proposalDetailsCaptureSummary);
 
         const scrapeModeSelect = document.getElementById('scrapeMode');
         if (scrapeModeSelect) {

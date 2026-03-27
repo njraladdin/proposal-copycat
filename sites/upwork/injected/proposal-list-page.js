@@ -41,6 +41,20 @@
             return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
         };
 
+        const parsePageNumberCandidate = (value) => {
+            const direct = parsePositiveInteger(value);
+            if (direct) {
+                return direct;
+            }
+
+            const match = String(value || '').match(/\b(\d+)\b/);
+            if (!match) {
+                return null;
+            }
+
+            return parsePositiveInteger(match[1]);
+        };
+
         const getElementLabel = (element) => {
             const labelledBy = (element.getAttribute('aria-labelledby') || '')
                 .split(/\s+/)
@@ -66,6 +80,152 @@
             if (element.getAttribute('aria-disabled') === 'true') return true;
             if (element.classList?.contains('disabled')) return true;
             return false;
+        };
+
+        const extractPageNumbersFromText = (value) => {
+            const normalized = String(value || '').replace(/\s+/g, ' ').trim();
+            if (!normalized) {
+                return { currentPage: '', totalPages: '' };
+            }
+
+            const patterns = [
+                /\bpage\s+(\d+)\s+of\s+(\d+)\b/i,
+                /\b(\d+)\s+of\s+(\d+)\b/i,
+                /\b(\d+)\s*\/\s*(\d+)\b/
+            ];
+
+            for (const pattern of patterns) {
+                const match = normalized.match(pattern);
+                if (!match) {
+                    continue;
+                }
+
+                const currentPage = parsePositiveInteger(match[1]);
+                const totalPages = parsePositiveInteger(match[2]);
+                if (currentPage && totalPages) {
+                    return {
+                        currentPage: String(currentPage),
+                        totalPages: String(totalPages)
+                    };
+                }
+            }
+
+            return { currentPage: '', totalPages: '' };
+        };
+
+        const parsePaginationState = (proposalsDiv) => {
+            const nextButtonSelector = [
+                'button[data-test="next-page"]',
+                'a[data-test="next-page"]',
+                'button[data-ev-label="pagination_next_page"]',
+                'a[data-ev-label="pagination_next_page"]',
+                'button[aria-label*="next" i]',
+                'a[aria-label*="next" i]'
+            ].join(', ');
+            const paginationRootSelector = [
+                'nav',
+                '[role="navigation"]',
+                '[aria-label*="pagination" i]',
+                '[data-test*="pagination"]',
+                '[data-ev-label*="pagination"]'
+            ].join(', ');
+
+            const nextButton =
+                proposalsDiv?.querySelector(nextButtonSelector) ||
+                document.querySelector(nextButtonSelector) ||
+                null;
+            const nextButtonLabel = nextButton ? getElementLabel(nextButton) : '';
+            const isNextDisabled = isElementDisabled(nextButton);
+
+            const paginationRoot =
+                nextButton?.closest('nav, [role="navigation"], [aria-label*="pagination" i], [data-test*="pagination"], [data-ev-label*="pagination"]') ||
+                proposalsDiv?.querySelector(paginationRootSelector) ||
+                proposalsDiv ||
+                document;
+
+            let currentPage = '';
+            let totalPages = '';
+
+            const activePageElement = paginationRoot.querySelector(
+                '[aria-current="page"], [aria-current="true"], button[disabled][data-test*="page"], a[aria-current="page"]'
+            );
+            if (activePageElement) {
+                const activePageValue = parsePageNumberCandidate(
+                    activePageElement.getAttribute('data-test-page') ||
+                    activePageElement.getAttribute('aria-label') ||
+                    activePageElement.textContent
+                );
+                if (activePageValue) {
+                    currentPage = String(activePageValue);
+                }
+            }
+
+            const paginationTextCandidates = [
+                paginationRoot.textContent,
+                nextButton?.parentElement?.textContent,
+                proposalsDiv?.textContent
+            ];
+            for (const candidate of paginationTextCandidates) {
+                const parsed = extractPageNumbersFromText(candidate);
+                if (!currentPage && parsed.currentPage) {
+                    currentPage = parsed.currentPage;
+                }
+                if (!totalPages && parsed.totalPages) {
+                    totalPages = parsed.totalPages;
+                }
+                if (currentPage && totalPages) {
+                    break;
+                }
+            }
+
+            const pageNumberControls = Array.from(
+                paginationRoot.querySelectorAll('button, a, span')
+            )
+                .map((element) => ({
+                    element,
+                    page: parsePageNumberCandidate(
+                        element.getAttribute('data-test-page') ||
+                        element.getAttribute('aria-label') ||
+                        element.textContent
+                    )
+                }))
+                .filter((entry) => entry.page);
+
+            if (!currentPage) {
+                const activeNumericControl = pageNumberControls.find((entry) => (
+                    entry.element.getAttribute('aria-current') === 'page' ||
+                    entry.element.getAttribute('aria-current') === 'true' ||
+                    entry.element.getAttribute('aria-selected') === 'true' ||
+                    entry.element.classList?.contains('active') ||
+                    (entry.element.tagName === 'BUTTON' && isElementDisabled(entry.element))
+                ));
+                if (activeNumericControl) {
+                    currentPage = String(activeNumericControl.page);
+                }
+            }
+
+            if (!totalPages && pageNumberControls.length > 0) {
+                totalPages = String(Math.max(...pageNumberControls.map((entry) => entry.page)));
+            }
+
+            if (!currentPage) {
+                const prevButton = findPrevPageButton(proposalsDiv);
+                if (prevButton && isElementDisabled(prevButton)) {
+                    currentPage = '1';
+                }
+            }
+
+            if (!totalPages && isNextDisabled && currentPage) {
+                totalPages = currentPage;
+            }
+
+            return {
+                currentPage,
+                totalPages,
+                nextButton,
+                nextButtonLabel,
+                isNextDisabled
+            };
         };
 
         const isReasonAllowed = (reason) => {

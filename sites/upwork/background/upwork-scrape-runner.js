@@ -1,6 +1,7 @@
 async function runUpworkScrape(options = {}) {
-    const RUN_STATUS_STORAGE_KEY = 'upworkRunStatus';
-    const RUN_CONTROL_STORAGE_KEY = 'upworkRunControl';
+    const upworkRunStatusModule = globalThis.ProposalCopycatUpworkRunStatusModule || {};
+    const RUN_STATUS_STORAGE_KEY = upworkRunStatusModule.RUN_STATUS_STORAGE_KEY || 'upworkRunStatus';
+    const RUN_CONTROL_STORAGE_KEY = upworkRunStatusModule.RUN_CONTROL_STORAGE_KEY || 'upworkRunControl';
     const ACTIVE_RUN_FLAG = '__proposalCopycatScrapeRunActive';
 
     if (globalThis[ACTIVE_RUN_FLAG]) {
@@ -8,7 +9,20 @@ async function runUpworkScrape(options = {}) {
     }
     globalThis[ACTIVE_RUN_FLAG] = true;
 
-    const scrapeMode = options?.scrapeMode === 'all' ? 'all' : 'successful';
+    const normalizeRunScrapeMode = typeof upworkRunStatusModule.normalizeScrapeMode === 'function'
+        ? upworkRunStatusModule.normalizeScrapeMode
+        : (value) => value === 'all' ? 'all' : 'successful';
+    const getRunDescriptor = typeof upworkRunStatusModule.getRunDescriptor === 'function'
+        ? upworkRunStatusModule.getRunDescriptor
+        : (descriptorOptions = {}) => ({
+            runKind: 'proposal-list',
+            statusTitle: descriptorOptions?.scrapeMode === 'all'
+                ? 'Collecting Proposals'
+                : 'Collecting Successful Proposals',
+            modeBadgeText: descriptorOptions?.scrapeMode === 'all' ? 'All Proposals' : 'Successful Only'
+        });
+
+    const scrapeMode = normalizeRunScrapeMode(options?.scrapeMode);
     const scrapeCurrentJobPost = options?.scrapeCurrentJobPost === true;
     const scrapeJobPostsFromSavedList = options?.scrapeJobPostsFromSavedList === true;
     const scrapeArchivedListOnly = options?.scrapeArchivedListOnly === true;
@@ -23,24 +37,15 @@ async function runUpworkScrape(options = {}) {
     );
     const isDebuggerListCaptureMode = scrapeArchivedListOnly && useDebuggerProposalListCapture;
     const useNetworkMonitor = !disableNetworkMonitor;
-    const statusTitle = scrapeCurrentJobPost
-        ? 'Collecting Job Post'
-        : (scrapeJobPostsFromSavedList
-            ? 'Collecting Job Posts'
-        : (scrapeArchivedListOnly
-            ? 'Collecting Proposal List'
-            : (scrapeDetailsFromSavedList
-                ? 'Collecting Proposal Details'
-                : (scrapeMode === 'all' ? 'Collecting Proposals' : 'Collecting Successful Proposals'))));
-    const modeBadgeText = scrapeCurrentJobPost
-        ? 'Current Job Page'
-        : (scrapeJobPostsFromSavedList
-            ? (scrapeMode === 'all' ? 'Job Posts From Saved Details: All Proposals' : 'Job Posts From Saved Details: Successful Only')
-        : (scrapeArchivedListOnly
-            ? (scrapeMode === 'all' ? 'Archived List: All Proposals' : 'Archived List: Successful Only')
-            : (scrapeDetailsFromSavedList
-                ? (scrapeMode === 'all' ? 'Details From Saved List: All Proposals' : 'Details From Saved List: Successful Only')
-                : (scrapeMode === 'all' ? 'All Proposals' : 'Successful Only'))));
+    const runDescriptor = getRunDescriptor({
+        scrapeMode,
+        scrapeCurrentJobPost,
+        scrapeJobPostsFromSavedList,
+        scrapeArchivedListOnly,
+        scrapeProposalDetailsFromList
+    });
+    const statusTitle = runDescriptor.statusTitle;
+    const modeBadgeText = runDescriptor.modeBadgeText;
     const modeSummaryText = scrapeMode === 'all' ? 'all proposals' : 'successful proposals';
 
     // Get existing proposals from storage

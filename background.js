@@ -1,6 +1,7 @@
 importScripts(
     'shared/utils.js',
     'sites/upwork/background/constants.js',
+    'sites/upwork/shared/upwork-run-status.js',
     'sites/upwork/background/upwork-scrape-runner.js',
     'sites/upwork/background/controller.js',
     'sites/tiktok/background/tiktok-controller.js'
