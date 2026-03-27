@@ -1,13 +1,17 @@
 // Upwork panel logic — loaded dynamically when the Upwork site tab is active.
-// This is the original popup.js logic, exposed via a mount function.
+// Mounted by the shared side panel shell.
 
 window.mountUpworkPanel = function() {
     const UPWORK_JOB_POST_URL_PATTERN = /^https:\/\/www\.upwork\.com\/jobs\/[^/?#]+/i;
-    const POPUP_SUBTAB_STORAGE_KEY = 'upworkActiveSubTab';
+    const UPWORK_SUBTAB_STORAGE_KEY = 'upworkActiveSubTab';
+    const UPWORK_RUN_STATUS_STORAGE_KEY = 'upworkRunStatus';
+    const UPWORK_RUN_CONTROL_STORAGE_KEY = 'upworkRunControl';
 
     let isAuthValid = true;
     let isOnJobPostPage = false;
     let latestProposalDetailsSummary = null;
+    let latestUpworkRunStatus = null;
+    let latestUpworkRunControl = { paused: false, stopRequested: false };
     const DATASET_CONFIG = {
         proposalList: {
             storageKey: 'proposalList',
@@ -25,13 +29,15 @@ window.mountUpworkPanel = function() {
             storageKey: 'activeJobPost',
             countId: 'activeJobPostCount',
             textareaId: 'activeJobJsonOutput',
-            loadButtonId: 'loadActiveJobJson'
+            loadButtonId: 'loadActiveJobJson',
+            autoLoad: true
         },
         jobPosts: {
             storageKey: 'jobPosts',
             countId: 'jobPostCount',
             textareaId: 'jobRawJsonOutput',
-            loadButtonId: 'loadJobJson'
+            loadButtonId: 'loadJobJson',
+            autoLoad: true
         }
     };
     const datasetState = {
@@ -168,6 +174,18 @@ window.mountUpworkPanel = function() {
         if (el) el.value = message;
     }
 
+    function isAutoLoadDataset(datasetKey) {
+        return DATASET_CONFIG[datasetKey]?.autoLoad === true;
+    }
+
+    function markDatasetDirty(datasetKey) {
+        const state = datasetState[datasetKey];
+        if (!state) return;
+        state.loaded = false;
+        state.dirty = true;
+        setDatasetPlaceholder(datasetKey, 'Data changed. Click "Load JSON" to refresh.');
+    }
+
     function renderDatasetJson(datasetKey, value) {
         const config = DATASET_CONFIG[datasetKey];
         if (!config) return;
@@ -239,6 +257,108 @@ window.mountUpworkPanel = function() {
         if (hours > 0) return `${hours}h ${minutes}m`;
         if (minutes > 0) return `${minutes}m ${seconds}s`;
         return `${seconds}s`;
+    }
+
+    function escapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function renderLiveRunStatus(runStatus, runControl = latestUpworkRunControl) {
+        const modeEl = document.getElementById('liveRunMode');
+        const headlineEl = document.getElementById('liveRunHeadline');
+        const countsEl = document.getElementById('liveRunCounts');
+        const etaEl = document.getElementById('liveRunEta');
+        const scopeEl = document.getElementById('liveRunScope');
+        const errorsEl = document.getElementById('liveRunErrors');
+        const savedEl = document.getElementById('liveRunSaved');
+        const updatedAtEl = document.getElementById('liveRunUpdatedAt');
+        const pauseButton = document.getElementById('toggleUpworkRunPause');
+        const stopButton = document.getElementById('stopUpworkRun');
+        const recentErrorsSectionEl = document.getElementById('liveRunRecentErrorsSection');
+        const recentErrorsEl = document.getElementById('liveRunRecentErrors');
+
+        if (!modeEl || !headlineEl || !countsEl || !etaEl || !scopeEl || !errorsEl || !savedEl || !updatedAtEl || !pauseButton || !stopButton || !recentErrorsSectionEl || !recentErrorsEl) {
+            return;
+        }
+
+        const safeStatus = runStatus && typeof runStatus === 'object' ? runStatus : null;
+        latestUpworkRunStatus = safeStatus;
+        latestUpworkRunControl = runControl && typeof runControl === 'object'
+            ? {
+                paused: runControl.paused === true,
+                stopRequested: runControl.stopRequested === true
+            }
+            : { paused: false, stopRequested: false };
+
+        if (!safeStatus) {
+            modeEl.textContent = 'Mode: -';
+            headlineEl.textContent = 'No active Upwork page run.';
+            countsEl.textContent = 'Items: -';
+            etaEl.textContent = 'ETA: -';
+            scopeEl.textContent = 'Scope: -';
+            errorsEl.textContent = 'Errors: 0';
+            savedEl.textContent = 'Saved: 0';
+            updatedAtEl.textContent = 'Updated: -';
+            recentErrorsSectionEl.style.display = 'none';
+            recentErrorsEl.innerHTML = '';
+            pauseButton.disabled = true;
+            pauseButton.textContent = 'Pause Collection';
+            stopButton.disabled = true;
+            stopButton.textContent = 'Stop Collection';
+            return;
+        }
+
+        const paused = latestUpworkRunControl.paused === true || safeStatus.isPaused === true;
+        const stopRequested = latestUpworkRunControl.stopRequested === true || safeStatus.stopRequested === true;
+        const itemCurrent = Number.parseInt(String(safeStatus.itemCurrent || 0), 10) || 0;
+        const itemTotal = Number.parseInt(String(safeStatus.itemTotal || 0), 10) || 0;
+        const totalSaved = Number.parseInt(String(safeStatus.totalSaved || 0), 10) || 0;
+        const errorTotal = Number.parseInt(String(safeStatus.errorTotal || 0), 10) || 0;
+        const etaMs = Number.parseInt(String(safeStatus.etaMs || 0), 10);
+        const itemProgressText = itemTotal > 0 ? `${Math.min(itemCurrent, itemTotal)}/${itemTotal}` : '-';
+        const statusTitle = String(safeStatus.statusTitle || 'Latest run').trim() || 'Latest run';
+        const actionText = String(safeStatus.action || (safeStatus.inProgress ? 'Running...' : 'Idle')).trim();
+        const scopeLabel = String(safeStatus.listProgressLabel || 'Scope').trim() || 'Scope';
+        const scopeText = String(safeStatus.listProgressText || '-').trim() || '-';
+        const errorSummary = String(safeStatus.errorSummary || '').trim();
+        const recentErrors = Array.isArray(safeStatus.recentErrors) ? safeStatus.recentErrors.slice(0, 3) : [];
+
+        modeEl.textContent = safeStatus.modeBadgeText
+            ? `Mode: ${safeStatus.modeBadgeText}`
+            : 'Mode: -';
+        headlineEl.textContent = `${statusTitle}${safeStatus.inProgress ? (stopRequested ? ' (stopping)' : (paused ? ' (paused)' : '')) : ''}: ${actionText}`;
+        countsEl.textContent = `Items: ${itemProgressText}`;
+        etaEl.textContent = safeStatus.inProgress
+            ? `ETA: ${stopRequested ? 'stopping...' : (paused ? 'paused' : (Number.isFinite(etaMs) && etaMs > 0 ? formatDurationShort(etaMs) : 'calculating...'))}`
+            : 'ETA: done';
+        scopeEl.textContent = `${scopeLabel}: ${scopeText}`;
+        errorsEl.textContent = `Errors: ${errorTotal}${errorSummary ? ` (${errorSummary})` : ''}`;
+        savedEl.textContent = `Saved: ${totalSaved}`;
+        updatedAtEl.textContent = `Updated: ${formatDateTime(safeStatus.updatedAt)}`;
+        if (recentErrors.length > 0) {
+            recentErrorsSectionEl.style.display = 'block';
+            recentErrorsEl.innerHTML = recentErrors
+                .map((entry) => `
+                    <div style="font-size: 11px; color: #495057; line-height: 1.35;">
+                        <span style="font-weight: 700; color: #b02a37;">${escapeHtml(entry?.type || 'error')}</span>
+                        <span>: ${escapeHtml(entry?.message || 'Unknown error')}</span>
+                        ${entry?.source ? `<div style="color: #6c757d; margin-top: 2px;">${escapeHtml(entry.source)}</div>` : ''}
+                    </div>
+                `)
+                .join('');
+        } else {
+            recentErrorsSectionEl.style.display = 'none';
+            recentErrorsEl.innerHTML = '';
+        }
+        pauseButton.disabled = !(safeStatus.inProgress && safeStatus.pauseSupported === true && !stopRequested);
+        pauseButton.textContent = paused ? 'Resume Collection' : 'Pause Collection';
+        stopButton.disabled = !(safeStatus.inProgress && safeStatus.stopSupported === true) || stopRequested;
+        stopButton.textContent = stopRequested && safeStatus.inProgress ? 'Stopping...' : 'Stop Collection';
     }
 
     function renderProposalDetailsSummary(summary) {
@@ -347,8 +467,8 @@ window.mountUpworkPanel = function() {
             panel.classList.toggle('active', panel.id === nextPanelId);
         }
 
-        chrome.storage.local.set({ [POPUP_SUBTAB_STORAGE_KEY]: nextPanelId }).catch((error) => {
-            console.warn('Failed to persist popup sub-tab state:', error);
+        chrome.storage.local.set({ [UPWORK_SUBTAB_STORAGE_KEY]: nextPanelId }).catch((error) => {
+            console.warn('Failed to persist Upwork sub-tab state:', error);
         });
     }
 
@@ -365,6 +485,55 @@ window.mountUpworkPanel = function() {
         await refreshJobPageState();
     });
 
+    addClickListener('toggleUpworkRunPause', async () => {
+        const canToggle = latestUpworkRunStatus?.inProgress &&
+            latestUpworkRunStatus?.pauseSupported === true &&
+            latestUpworkRunControl?.stopRequested !== true;
+        if (!canToggle) return;
+
+        const nextPaused = !(latestUpworkRunControl?.paused === true || latestUpworkRunStatus?.isPaused === true);
+        latestUpworkRunControl = { paused: nextPaused, stopRequested: false };
+        renderLiveRunStatus(latestUpworkRunStatus, latestUpworkRunControl);
+
+        try {
+            await chrome.storage.local.set({
+                [UPWORK_RUN_CONTROL_STORAGE_KEY]: {
+                    paused: nextPaused,
+                    stopRequested: false,
+                    updatedAt: new Date().toISOString()
+                }
+            });
+        } catch (error) {
+            console.error('Failed to update Upwork run pause state:', error);
+            const refreshed = await chrome.storage.local.get(UPWORK_RUN_CONTROL_STORAGE_KEY);
+            renderLiveRunStatus(latestUpworkRunStatus, refreshed[UPWORK_RUN_CONTROL_STORAGE_KEY]);
+        }
+    });
+
+    addClickListener('stopUpworkRun', async () => {
+        const canStop = latestUpworkRunStatus?.inProgress &&
+            latestUpworkRunStatus?.stopSupported === true &&
+            latestUpworkRunControl?.stopRequested !== true;
+        if (!canStop) return;
+
+        latestUpworkRunControl = { paused: false, stopRequested: true };
+        renderLiveRunStatus(latestUpworkRunStatus, latestUpworkRunControl);
+
+        try {
+            await chrome.storage.local.set({
+                [UPWORK_RUN_CONTROL_STORAGE_KEY]: {
+                    paused: false,
+                    stopRequested: true,
+                    updatedAt: new Date().toISOString()
+                }
+            });
+        } catch (error) {
+            console.error('Failed to request Upwork run stop:', error);
+            const refreshed = await chrome.storage.local.get(UPWORK_RUN_CONTROL_STORAGE_KEY);
+            renderLiveRunStatus(latestUpworkRunStatus, refreshed[UPWORK_RUN_CONTROL_STORAGE_KEY]);
+        }
+    });
+
     const scrapeModeEl = document.getElementById('scrapeMode');
     if (scrapeModeEl) {
         scrapeModeEl.addEventListener('change', async (event) => {
@@ -379,7 +548,6 @@ window.mountUpworkPanel = function() {
         const scrapeMode = normalizeScrapeMode(document.getElementById('scrapeMode').value);
         await chrome.storage.local.set({ scrapeMode });
         chrome.runtime.sendMessage({ action: 'startArchivedListScraping', scrapeMode });
-        window.close();
     });
 
     addClickListener('startScraping', async () => {
@@ -407,7 +575,6 @@ window.mountUpworkPanel = function() {
         const isValidJobPage = await refreshJobPageState();
         if (!isValidJobPage) return;
         chrome.runtime.sendMessage({ action: 'startCurrentJobPostScraping' });
-        window.close();
     });
 
     addClickListener('startJobFromListScraping', async () => {
@@ -416,7 +583,6 @@ window.mountUpworkPanel = function() {
         const scrapeMode = normalizeScrapeMode(document.getElementById('scrapeMode').value);
         await chrome.storage.local.set({ scrapeMode });
         chrome.runtime.sendMessage({ action: 'startJobPostsFromSavedListScraping', scrapeMode });
-        window.close();
     });
 
     addClickListener('repairSavedJobUrls', async () => {
@@ -435,11 +601,12 @@ window.mountUpworkPanel = function() {
             await refreshCountsOnly();
 
             for (const datasetKey of ['proposalList', 'proposals', 'activeJobPost', 'jobPosts']) {
-                if (datasetState[datasetKey]) {
-                    datasetState[datasetKey].loaded = false;
-                    datasetState[datasetKey].dirty = true;
-                    setDatasetPlaceholder(datasetKey, 'Data changed. Click "Load JSON" to refresh.');
+                if (!datasetState[datasetKey]) continue;
+                if (isAutoLoadDataset(datasetKey)) {
+                    await loadDatasetJson(datasetKey, { force: true });
+                    continue;
                 }
+                markDatasetDirty(datasetKey);
             }
 
             alert(
@@ -551,37 +718,43 @@ window.mountUpworkPanel = function() {
         if (changes.proposals) {
             setDatasetCount('proposals', changes.proposals.newValue);
             if (datasetState.proposals.loaded) {
-                datasetState.proposals.loaded = false;
-                datasetState.proposals.dirty = true;
-                setDatasetPlaceholder('proposals', 'Data changed. Click "Load JSON" to refresh.');
+                markDatasetDirty('proposals');
             }
         }
         if (changes.proposalList) {
             setDatasetCount('proposalList', changes.proposalList.newValue);
             if (datasetState.proposalList.loaded) {
-                datasetState.proposalList.loaded = false;
-                datasetState.proposalList.dirty = true;
-                setDatasetPlaceholder('proposalList', 'Data changed. Click "Load JSON" to refresh.');
+                markDatasetDirty('proposalList');
             }
         }
         if (changes.activeJobPost) {
-            setDatasetCount('activeJobPost', changes.activeJobPost.newValue);
-            if (datasetState.activeJobPost.loaded) {
-                datasetState.activeJobPost.loaded = false;
-                datasetState.activeJobPost.dirty = true;
-                setDatasetPlaceholder('activeJobPost', 'Data changed. Click "Load JSON" to refresh.');
+            if (isAutoLoadDataset('activeJobPost')) {
+                renderDatasetJson('activeJobPost', changes.activeJobPost.newValue);
+            } else {
+                setDatasetCount('activeJobPost', changes.activeJobPost.newValue);
+                if (datasetState.activeJobPost.loaded) {
+                    markDatasetDirty('activeJobPost');
+                }
             }
         }
         if (changes.jobPosts) {
-            setDatasetCount('jobPosts', changes.jobPosts.newValue);
-            if (datasetState.jobPosts.loaded) {
-                datasetState.jobPosts.loaded = false;
-                datasetState.jobPosts.dirty = true;
-                setDatasetPlaceholder('jobPosts', 'Data changed. Click "Load JSON" to refresh.');
+            if (isAutoLoadDataset('jobPosts')) {
+                renderDatasetJson('jobPosts', changes.jobPosts.newValue);
+            } else {
+                setDatasetCount('jobPosts', changes.jobPosts.newValue);
+                if (datasetState.jobPosts.loaded) {
+                    markDatasetDirty('jobPosts');
+                }
             }
         }
         if (changes.proposalDetailsCaptureSummary) {
             renderProposalDetailsSummary(changes.proposalDetailsCaptureSummary.newValue);
+        }
+        if (changes[UPWORK_RUN_STATUS_STORAGE_KEY]) {
+            renderLiveRunStatus(changes[UPWORK_RUN_STATUS_STORAGE_KEY].newValue, latestUpworkRunControl);
+        }
+        if (changes[UPWORK_RUN_CONTROL_STORAGE_KEY]) {
+            renderLiveRunStatus(latestUpworkRunStatus, changes[UPWORK_RUN_CONTROL_STORAGE_KEY].newValue);
         }
     });
 
@@ -591,13 +764,18 @@ window.mountUpworkPanel = function() {
         const data = await chrome.storage.local.get([
             'proposalDetailsCaptureSummary',
             'scrapeMode',
-            POPUP_SUBTAB_STORAGE_KEY
+            UPWORK_SUBTAB_STORAGE_KEY,
+            UPWORK_RUN_STATUS_STORAGE_KEY,
+            UPWORK_RUN_CONTROL_STORAGE_KEY,
+            'activeJobPost',
+            'jobPosts'
         ]);
 
         setDatasetPlaceholder('proposalList', 'JSON not loaded yet. Click "Load JSON".');
         setDatasetPlaceholder('proposals', 'JSON not loaded yet. Click "Load JSON".');
-        setDatasetPlaceholder('activeJobPost', 'JSON not loaded yet. Click "Load JSON".');
-        setDatasetPlaceholder('jobPosts', 'JSON not loaded yet. Click "Load JSON".');
+        renderDatasetJson('activeJobPost', data.activeJobPost);
+        renderDatasetJson('jobPosts', data.jobPosts);
+        renderLiveRunStatus(data[UPWORK_RUN_STATUS_STORAGE_KEY], data[UPWORK_RUN_CONTROL_STORAGE_KEY]);
         renderProposalDetailsSummary(data.proposalDetailsCaptureSummary);
 
         const scrapeModeSelect = document.getElementById('scrapeMode');
@@ -605,7 +783,7 @@ window.mountUpworkPanel = function() {
             scrapeModeSelect.value = normalizeScrapeMode(data.scrapeMode);
         }
 
-        activateSubTab(normalizeSubTab(data[POPUP_SUBTAB_STORAGE_KEY]));
+        activateSubTab(normalizeSubTab(data[UPWORK_SUBTAB_STORAGE_KEY]));
 
         await checkUpworkAuth();
         await refreshJobPageState();

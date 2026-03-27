@@ -1,5 +1,37 @@
-<!-- Upwork site panel - loaded dynamically into popup shell -->
+<!-- Upwork site panel - loaded dynamically into the side panel shell -->
 <div id="authWarning" class="auth-warning">Please sign in to Upwork first.</div>
+
+<div class="data-preview" style="margin-bottom: 12px;">
+  <div class="data-preview-header">
+    <div>
+      <div class="data-preview-title">Live Run Status</div>
+      <p class="subtle-note" id="liveRunMode" style="margin: 4px 0 0 0;">Mode: -</p>
+    </div>
+    <div class="toolbar-actions">
+      <button id="toggleUpworkRunPause" class="copy-json-btn" disabled>Pause Collection</button>
+      <button id="stopUpworkRun" class="copy-json-btn" disabled>Stop Collection</button>
+    </div>
+  </div>
+  <p class="subtle-note" id="liveRunHeadline">No active Upwork page run.</p>
+  <div class="raw-json-toolbar">
+    <span id="liveRunCounts">Items: -</span>
+    <span id="liveRunEta">ETA: -</span>
+  </div>
+  <div class="raw-json-toolbar" style="margin-top: 4px;">
+    <span id="liveRunScope">Scope: -</span>
+    <span id="liveRunErrors">Errors: 0</span>
+  </div>
+  <div class="raw-json-toolbar" style="margin-top: 4px; margin-bottom: 0;">
+    <span id="liveRunSaved">Saved: 0</span>
+    <span id="liveRunUpdatedAt">Updated: -</span>
+  </div>
+  <div id="liveRunRecentErrorsSection" style="display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid #e6e8eb;">
+    <div class="raw-json-toolbar" style="margin-bottom: 6px;">
+      <span>Recent Errors</span>
+    </div>
+    <div id="liveRunRecentErrors" style="display: flex; flex-direction: column; gap: 6px;"></div>
+  </div>
+</div>
 
 <div class="site-tab-nav">
   <button id="tabProposals" class="site-tab-btn active" data-tab="proposalsPanel">Proposals</button>
@@ -97,7 +129,7 @@
     <div class="raw-json-toolbar">
       <span>Exact stored payload</span>
       <div class="toolbar-actions">
-        <button id="loadActiveJobJson" class="copy-json-btn">Load JSON</button>
+        <button id="loadActiveJobJson" class="copy-json-btn">Refresh JSON</button>
         <button id="downloadActiveJobJson" class="copy-json-btn">Download JSON</button>
         <button id="copyActiveJobJson" class="copy-json-btn">Copy JSON</button>
       </div>
@@ -113,7 +145,7 @@
     <div class="raw-json-toolbar">
       <span>Exact stored payload</span>
       <div class="toolbar-actions">
-        <button id="loadJobJson" class="copy-json-btn">Load JSON</button>
+        <button id="loadJobJson" class="copy-json-btn">Refresh JSON</button>
         <button id="downloadJobJson" class="copy-json-btn">Download JSON</button>
         <button id="copyJobJson" class="copy-json-btn">Copy JSON</button>
       </div>

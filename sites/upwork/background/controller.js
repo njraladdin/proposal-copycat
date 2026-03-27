@@ -1,5 +1,8 @@
 const INJECTED_SCRAPER_HELPER_FILES = [
-    'sites/upwork/injected/job-post-page.js'
+    'sites/upwork/injected/job-post-page.js',
+    'sites/upwork/injected/proposal-details-page.js',
+    'sites/upwork/injected/proposal-list-page.js',
+    'sites/upwork/injected/proposal-scrape-run-state.js'
 ];
 const MAIN_WORLD_SCRAPER_HELPER_FILES = [
     'sites/upwork/injected/proposals-network-monitor.js'
@@ -1529,7 +1532,7 @@ async function startArchivedListScrapingFlow(scrapeMode = DEFAULT_SCRAPE_MODE) {
     try {
         await chrome.scripting.executeScript({
             target: { tabId: targetTabId },
-            function: scrapeProposals,
+            function: runUpworkScrape,
             args: [{
                 scrapeMode,
                 scrapeArchivedListOnly: true,
@@ -1559,7 +1562,7 @@ async function startJobPostsFromSavedListScrapingFlow(scrapeMode = DEFAULT_SCRAP
     await ensureInjectedScraperHelpers(targetTabId);
     await chrome.scripting.executeScript({
         target: { tabId: targetTabId },
-        function: scrapeProposals,
+        function: runUpworkScrape,
         args: [{ scrapeMode, scrapeJobPostsFromSavedList: true }]
     });
 }
@@ -1577,7 +1580,7 @@ async function startCurrentJobPostScrapingFlow() {
     await ensureInjectedScraperHelpers(currentTab.id);
     await chrome.scripting.executeScript({
         target: { tabId: currentTab.id },
-        function: scrapeProposals,
+        function: runUpworkScrape,
         args: [{ scrapeCurrentJobPost: true }]
     });
 }

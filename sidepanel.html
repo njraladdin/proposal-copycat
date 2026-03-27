@@ -1,119 +1,143 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <meta charset="utf-8">
   <style>
-    body {
-      width: 760px;
-      min-height: 620px;
-      padding: 24px;
-      margin: 0;
+    :root {
+      --bg-page: linear-gradient(180deg, #f7f8fb 0%, #f1f4f9 100%);
+      --bg-card: #ffffff;
+      --bg-muted: #f8fafc;
+      --border-color: #e6e8eb;
+      --border-strong: #d8dadd;
+      --text-color: #1a1f36;
+      --text-muted: #697386;
+      --text-subtle: #495057;
+      --accent-bg: #ececff;
+      --accent-border: #d7d6ff;
+      --accent-text: #3d38ad;
+      --button-bg: #635bff;
+      --button-bg-hover: #5851e9;
+      --success-text: #14a800;
+    }
+
+    * {
       box-sizing: border-box;
+    }
+
+    html,
+    body {
+      min-height: 100%;
+    }
+
+    body {
+      min-width: 0;
+      min-height: 100vh;
+      padding: 16px;
+      margin: 0;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-      background: #fafafa;
-      color: #1a1f36;
+      background: var(--bg-page);
+      color: var(--text-color);
       overflow-y: auto;
     }
 
-    /* ── Top-level site tabs ── */
-
     .header {
-      margin-bottom: 20px;
-      text-align: center;
-      padding: 0 16px;
+      margin-bottom: 16px;
+      text-align: left;
     }
 
     .header h1 {
-      font-size: 28px;
-      font-weight: 600;
-      margin: 0 0 8px 0;
+      font-size: 22px;
+      font-weight: 700;
+      margin: 0 0 6px 0;
+      letter-spacing: -0.2px;
     }
 
     .header p {
       margin: 0;
-      font-size: 14px;
+      font-size: 13px;
       line-height: 1.5;
-      color: #697386;
+      color: var(--text-muted);
     }
 
     .site-tabs {
-      display: inline-flex;
+      display: flex;
+      flex-wrap: wrap;
       gap: 6px;
       padding: 5px;
-      background: #fff;
-      border: 1px solid #e6e8eb;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
       border-radius: 12px;
-      margin-bottom: 20px;
+      margin-bottom: 16px;
+      width: 100%;
     }
 
     .site-tab {
-      display: flex;
+      display: inline-flex;
       align-items: center;
+      justify-content: center;
       gap: 6px;
       border: 1px solid transparent;
       background: transparent;
-      color: #495057;
-      padding: 9px 16px;
+      color: var(--text-subtle);
+      padding: 9px 14px;
       font-size: 14px;
       border-radius: 9px;
       font-weight: 600;
       cursor: pointer;
       transition: background 0.15s ease, color 0.15s ease;
+      flex: 1 1 120px;
     }
 
     .site-tab:hover {
       background: #f8f9fa;
-      color: #1a1f36;
+      color: var(--text-color);
       transform: none;
     }
 
     .site-tab.active {
-      background: #ececff;
-      border-color: #d7d6ff;
-      color: #3d38ad;
+      background: var(--accent-bg);
+      border-color: var(--accent-border);
+      color: var(--accent-text);
     }
-
-    .site-tab .tab-icon {
-      font-size: 16px;
-    }
-
-    /* ── Per-site panel container ── */
 
     #siteContent {
       min-height: 400px;
     }
 
-    /* ── Sub-tab nav (used within site panels like Upwork) ── */
-
     .site-tab-nav {
-      display: inline-flex;
+      display: flex;
+      flex-wrap: wrap;
       gap: 8px;
       padding: 6px;
-      background: #fff;
-      border: 1px solid #e6e8eb;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
       border-radius: 10px;
       margin-bottom: 16px;
+      width: 100%;
     }
 
     .site-tab-btn {
       border: 1px solid transparent;
       background: transparent;
-      color: #495057;
+      color: var(--text-subtle);
       padding: 8px 12px;
       font-size: 13px;
       border-radius: 8px;
       font-weight: 600;
+      cursor: pointer;
+      flex: 1 1 140px;
     }
 
     .site-tab-btn:hover {
       transform: none;
       background: #f8f9fa;
-      color: #1a1f36;
+      color: var(--text-color);
     }
 
     .site-tab-btn.active {
-      background: #ececff;
-      border-color: #d7d6ff;
-      color: #3d38ad;
+      background: var(--accent-bg);
+      border-color: var(--accent-border);
+      color: var(--accent-text);
     }
 
     .site-tab-panel {
@@ -124,17 +148,15 @@
       display: block;
     }
 
-    /* ── Controls ── */
-
     .controls {
       display: flex;
-      justify-content: space-between;
-      align-items: center;
+      flex-direction: column;
+      align-items: stretch;
       gap: 12px;
       margin-bottom: 18px;
       padding: 12px;
-      background: #fff;
-      border: 1px solid #e6e8eb;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
       border-radius: 10px;
     }
 
@@ -143,38 +165,41 @@
       display: flex;
       align-items: center;
       gap: 10px;
+      flex-wrap: wrap;
     }
 
     .control-right {
       font-size: 13px;
-      color: #495057;
+      color: var(--text-subtle);
       font-weight: 600;
+      justify-content: space-between;
     }
 
     .mode-select {
-      height: 36px;
-      border: 1px solid #d8dadd;
+      min-height: 36px;
+      border: 1px solid var(--border-strong);
       border-radius: 8px;
       padding: 0 10px;
-      background: #fff;
-      color: #1a1f36;
+      background: var(--bg-card);
+      color: var(--text-color);
       font-size: 13px;
     }
 
     button {
-      padding: 10px 16px;
+      padding: 10px 14px;
       border: none;
       border-radius: 8px;
-      background: #635bff;
+      background: var(--button-bg);
       color: #fff;
       cursor: pointer;
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 600;
       transition: background 0.15s ease, transform 0.15s ease;
+      white-space: nowrap;
     }
 
     button:hover {
-      background: #5851e9;
+      background: var(--button-bg-hover);
       transform: translateY(-1px);
     }
 
@@ -187,7 +212,7 @@
     .clear-btn {
       background: transparent;
       color: #6c757d;
-      border: 1px solid #d8dadd;
+      border: 1px solid var(--border-strong);
       font-weight: 500;
     }
 
@@ -222,11 +247,9 @@
       display: none;
     }
 
-    /* ── Data previews ── */
-
     .data-preview {
-      background: #fff;
-      border: 1px solid #e6e8eb;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
       border-radius: 12px;
       box-shadow: 0 2px 5px rgba(26, 31, 54, 0.05);
       padding: 12px;
@@ -236,6 +259,7 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
+      gap: 10px;
       margin-bottom: 10px;
       padding: 0 2px;
     }
@@ -247,20 +271,21 @@
     }
 
     .data-preview-title span {
-      color: #14a800;
+      color: var(--success-text);
     }
 
     .subtle-note {
       margin: 0 0 10px 2px;
       font-size: 12px;
       color: #6c757d;
-      line-height: 1.4;
+      line-height: 1.45;
     }
 
     .raw-json-toolbar {
       display: flex;
       justify-content: space-between;
       align-items: center;
+      gap: 8px;
       margin-bottom: 8px;
       font-size: 12px;
       color: #6c757d;
@@ -269,10 +294,10 @@
 
     .copy-json-btn {
       padding: 6px 10px;
-      border: 1px solid #d8dadd;
+      border: 1px solid var(--border-strong);
       border-radius: 6px;
       background: #fff;
-      color: #495057;
+      color: var(--text-subtle);
       cursor: pointer;
       font-size: 12px;
       font-weight: 600;
@@ -286,14 +311,15 @@
       display: flex;
       gap: 8px;
       align-items: center;
+      flex-wrap: wrap;
+      justify-content: flex-end;
     }
 
     .raw-json {
       width: 100%;
-      min-height: 390px;
-      max-height: 430px;
+      min-height: 260px;
+      max-height: 420px;
       resize: vertical;
-      box-sizing: border-box;
       border: 1px solid #dfe3e8;
       border-radius: 8px;
       padding: 10px;
@@ -304,16 +330,14 @@
       background: #fbfcfd;
     }
 
-    /* ── Coming soon placeholder ── */
-
     .coming-soon {
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      min-height: 350px;
+      min-height: 320px;
       text-align: center;
-      color: #697386;
+      color: var(--text-muted);
     }
 
     .coming-soon-icon {
@@ -324,7 +348,7 @@
     .coming-soon h2 {
       font-size: 22px;
       font-weight: 600;
-      color: #1a1f36;
+      color: var(--text-color);
       margin: 0 0 8px 0;
     }
 
@@ -333,8 +357,6 @@
       margin: 0;
       line-height: 1.5;
     }
-
-    /* ── Scrollbar ── */
 
     ::-webkit-scrollbar {
       width: 8px;
@@ -349,16 +371,41 @@
       background: #c8c8c8;
       border-radius: 4px;
     }
+
+    @media (max-width: 520px) {
+      body {
+        padding: 12px;
+      }
+
+      .data-preview-header,
+      .raw-json-toolbar {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .toolbar-actions {
+        justify-content: flex-start;
+      }
+
+      .mode-select {
+        width: 100%;
+      }
+
+      button,
+      .copy-json-btn {
+        width: 100%;
+      }
+    }
   </style>
 </head>
 <body>
   <div class="header">
     <h1>Data Scraper</h1>
-    <p>Multi-site data extraction tool.</p>
+    <p>Persistent side panel for multi-site scraping and navigation.</p>
   </div>
 
   <div id="siteTabs" class="site-tabs">
-    <!-- site tabs are rendered by popup.js -->
+    <!-- site tabs are rendered by sidepanel-shell.js -->
   </div>
 
   <div id="siteContent">
@@ -367,6 +414,6 @@
 
   <script src="sites/upwork/panel.js"></script>
   <script src="sites/tiktok/panel.js"></script>
-  <script src="popup.js"></script>
+  <script src="sidepanel-shell.js"></script>
 </body>
 </html>

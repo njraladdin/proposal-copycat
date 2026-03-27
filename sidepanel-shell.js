@@ -1,5 +1,5 @@
 /**
- * Popup shell — renders top-level site tabs and dynamically loads
+ * Side panel shell — renders top-level site tabs and dynamically loads
  * each site's panel HTML + JS when a tab is activated.
  */
 
@@ -92,7 +92,7 @@ async function activateSite(siteId) {
 /**
  * Initialize: restore last-active site tab and render.
  */
-async function initializePopup() {
+async function initializeSidePanelShell() {
     const data = await chrome.storage.local.get(ACTIVE_SITE_STORAGE_KEY);
     const activeSiteId = normalizeSiteId(data[ACTIVE_SITE_STORAGE_KEY]);
 
@@ -101,7 +101,7 @@ async function initializePopup() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    initializePopup().catch((error) => {
-        console.error('Popup initialization failed:', error);
+    initializeSidePanelShell().catch((error) => {
+        console.error('Side panel shell initialization failed:', error);
     });
 });
