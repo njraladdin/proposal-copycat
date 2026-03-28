@@ -1,0 +1,42 @@
+<div id="githubProfileWarning" class="info-warning" style="display: none;">Open a GitHub profile page like <code>https://github.com/your-username</code> first.</div>
+
+<div class="data-preview" style="margin-bottom: 12px;">
+  <div class="data-preview-header">
+    <div class="data-preview-title">GitHub Public Profile</div>
+  </div>
+  <p class="subtle-note">No personal access token required. This uses the public GitHub API for the currently open profile tab.</p>
+</div>
+
+<div class="controls">
+  <div class="control-left">
+    <button id="startGithubScraping">Fetch Public Repos</button>
+  </div>
+  <div class="control-right">
+    <button id="clearGithubData" class="clear-btn">Clear Data</button>
+  </div>
+</div>
+
+<div class="data-preview" style="margin-bottom: 12px;">
+  <div class="data-preview-header">
+    <div class="data-preview-title">Status</div>
+  </div>
+  <p class="subtle-note" id="githubStatusHeadline">Ready.</p>
+  <p class="subtle-note" id="githubProfileHeadline">No GitHub snapshot saved yet.</p>
+  <p class="subtle-note" id="githubRateLimitHeadline">GitHub public API rate limit details will appear after a run.</p>
+</div>
+
+<div class="data-preview">
+  <div class="data-preview-header">
+    <div class="data-preview-title">GitHub Snapshot (<span id="githubRepoCount">0</span> repos)</div>
+  </div>
+  <p class="subtle-note">Stores the public profile summary, repo metadata, and each repo README when available.</p>
+  <div class="raw-json-toolbar">
+    <span>Exact stored payload</span>
+    <div class="toolbar-actions">
+      <button id="loadGithubJson" class="copy-json-btn">Load JSON</button>
+      <button id="downloadGithubJson" class="copy-json-btn">Download JSON</button>
+      <button id="copyGithubJson" class="copy-json-btn">Copy JSON</button>
+    </div>
+  </div>
+  <textarea id="githubJsonOutput" class="raw-json" readonly></textarea>
+</div>

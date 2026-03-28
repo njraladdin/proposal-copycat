@@ -53,8 +53,13 @@ async function runUpworkScrape(options = {}) {
     const existingProposals = storageData.proposals || [];
     const existingProposalList = Array.isArray(storageData.proposalList) ? storageData.proposalList : [];
     const initialProposalListCount = existingProposalList.length;
+    const getProposalDetailsPageData = (proposal) => (
+        proposal?.proposalDetailsPage?.pageData ||
+        proposal?.proposalDetailsPage?.data ||
+        null
+    );
     const extractProposalUrl = (proposal) => (
-        proposal?.proposalDetailsPage?.data?.proposal?.proposalUrl ||
+        getProposalDetailsPageData(proposal)?.proposal?.proposalUrl ||
         proposal?.proposal?.proposalUrl ||
         proposal?.proposalListPage?.href ||
         proposal?.href ||
@@ -144,11 +149,11 @@ async function runUpworkScrape(options = {}) {
         normalizeJobPostHref(
             proposal?.jobPostPage?.url ||
             proposal?.proposalDetailsPage?.jobPostHref ||
-            proposal?.proposalDetailsPage?.data?.jobPost?.url
+            getProposalDetailsPageData(proposal)?.jobPost?.url
         )
     );
     const extractJobPostDataFallbackFromProposal = (proposal, fallbackJobUrl = '') => {
-        const existingDetailsData = proposal?.proposalDetailsPage?.data;
+        const existingDetailsData = getProposalDetailsPageData(proposal);
         if (existingDetailsData && typeof existingDetailsData === 'object') {
             const existingJobPost = existingDetailsData.jobPost;
             if (existingJobPost && typeof existingJobPost === 'object' && Object.keys(existingJobPost).length > 0) {

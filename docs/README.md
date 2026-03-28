@@ -7,10 +7,11 @@ Use this as the starting point when you need to understand how the codebase is o
 ## Recommended Reading Order
 
 1. [System Overview](./overview.md)
-2. [Upwork Architecture](./upwork-architecture.md)
-3. [Upwork Run Status](./upwork-run-status.md)
-4. [Upwork Data Model](./upwork-data-model.md)
-5. [Maintenance Guide](./maintenance-guide.md)
+2. [GitHub Architecture](./github-architecture.md)
+3. [Upwork Architecture](./upwork-architecture.md)
+4. [Upwork Run Status](./upwork-run-status.md)
+5. [Upwork Data Model](./upwork-data-model.md)
+6. [Maintenance Guide](./maintenance-guide.md)
 
 ## What Each File Covers
 
@@ -18,6 +19,11 @@ Use this as the starting point when you need to understand how the codebase is o
   - extension shell architecture
   - site panel pattern
   - adding another site
+- [github-architecture.md](./github-architecture.md)
+  - GitHub panel/background flow
+  - storage keys and snapshot shape
+  - README reuse / caching behavior
+  - rate-limit handling
 - [upwork-architecture.md](./upwork-architecture.md)
   - core Upwork files
   - run types

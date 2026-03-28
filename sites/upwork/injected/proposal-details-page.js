@@ -244,6 +244,169 @@
             buildCleanNuxtDataFromRawParsedData(rawNuxtData?.rawParsedData, linkData)
         );
 
+        const normalizeMultilineText = (value) => {
+            const normalized = String(value || '')
+                .replace(/\u00a0/g, ' ')
+                .replace(/\r\n?/g, '\n')
+                .split('\n')
+                .map((line) => line.replace(/[ \t]+/g, ' ').trim())
+                .join('\n')
+                .replace(/\n{3,}/g, '\n\n')
+                .trim();
+
+            return normalized || null;
+        };
+
+        const normalizeInlineText = (value) => {
+            const normalized = String(value || '')
+                .replace(/\u00a0/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+
+            return normalized || null;
+        };
+
+        const parseConnectsCount = (value) => {
+            const match = String(value || '').match(/(\d+)\s+connects?\b/i);
+            if (!match) {
+                return null;
+            }
+
+            const parsed = Number.parseInt(match[1], 10);
+            return Number.isFinite(parsed) ? parsed : null;
+        };
+
+        const extractCoverLetterFromDom = (parsedDoc, sourceUrl = '') => {
+            const coverLetterSection = parsedDoc?.querySelector('[data-cy="cover-letter-section"]');
+            if (!coverLetterSection) {
+                return null;
+            }
+
+            const contentNode =
+                coverLetterSection.querySelector('p.text-pre-line') ||
+                coverLetterSection.querySelector('.air3-card-section .text-pre-line') ||
+                coverLetterSection.querySelector('.air3-card-section p.break') ||
+                coverLetterSection.querySelector('.air3-card-section p');
+
+            if (!contentNode) {
+                return null;
+            }
+
+            const coverLetter = normalizeMultilineText(contentNode?.textContent || '');
+            if (coverLetter) {
+                debugLog(
+                    `[Proposal] ${sourceUrl || 'unknown-url'}: extracted DOM cover letter ` +
+                    `(${coverLetter.length} chars).`
+                );
+            }
+
+            return coverLetter;
+        };
+
+        const extractAttachedHighlightsFromDom = (parsedDoc, sourceUrl = '') => {
+            const attachedHighlightsSection = parsedDoc?.querySelector('.profile-highlights-section');
+            if (!attachedHighlightsSection) {
+                return null;
+            }
+
+            const sectionDescription = normalizeInlineText(
+                attachedHighlightsSection.querySelector('header .subtitle')?.textContent || ''
+            );
+            const items = Array.from(
+                attachedHighlightsSection.querySelectorAll('[data-test="highlights-item"]')
+            )
+                .map((item) => {
+                    const secondaryTexts = Array.from(item.querySelectorAll('.secondary-text'))
+                        .map((node) => normalizeInlineText(node.textContent))
+                        .filter(Boolean);
+                    const title = normalizeInlineText(
+                        item.querySelector('.item-title')?.textContent || ''
+                    );
+                    const itemType = secondaryTexts[0] || null;
+                    const meta = normalizeInlineText(
+                        item.querySelector('.work-history-info')?.textContent || ''
+                    ) || secondaryTexts.slice(1).join(' | ') || null;
+
+                    const normalizedItem = {};
+                    setIfPresent(normalizedItem, 'type', itemType);
+                    setIfPresent(normalizedItem, 'title', title);
+                    setIfPresent(normalizedItem, 'meta', meta);
+
+                    return Object.keys(normalizedItem).length > 0 ? normalizedItem : null;
+                })
+                .filter(Boolean);
+
+            if (!sectionDescription && items.length === 0) {
+                return null;
+            }
+
+            const attachedHighlights = {};
+            setIfPresent(attachedHighlights, 'description', sectionDescription);
+            setIfPresent(attachedHighlights, 'items', items);
+
+            debugLog(
+                `[Proposal] ${sourceUrl || 'unknown-url'}: extracted DOM attached proposal highlights ` +
+                `(${items.length} item(s)).`
+            );
+
+            return attachedHighlights;
+        };
+
+        const extractProposalConnectsFromDom = (parsedDoc, sourceUrl = '') => {
+            const boostSection = parsedDoc?.querySelector('.boost-information-section');
+            if (!boostSection) {
+                return null;
+            }
+
+            const connectsText = normalizeInlineText(
+                boostSection.querySelector('strong')?.textContent ||
+                boostSection.querySelector('.text-body')?.textContent ||
+                boostSection.textContent ||
+                ''
+            );
+            const connectsSpent = parseConnectsCount(connectsText);
+
+            if (connectsSpent !== null) {
+                debugLog(
+                    `[Proposal] ${sourceUrl || 'unknown-url'}: extracted DOM connects count ` +
+                    `(${connectsSpent}).`
+                );
+            }
+
+            return connectsSpent;
+        };
+
+        const mergeDomProposalFields = (proposalDetailsData, domFields = {}) => {
+            const mergedData = proposalDetailsData && typeof proposalDetailsData === 'object'
+                ? { ...proposalDetailsData }
+                : {};
+            const mergedProposal = mergedData.proposal && typeof mergedData.proposal === 'object'
+                ? { ...mergedData.proposal }
+                : {};
+            const mergedTerms = mergedProposal.terms && typeof mergedProposal.terms === 'object'
+                ? { ...mergedProposal.terms }
+                : {};
+
+            if (domFields.coverLetter) {
+                mergedProposal.coverLetter = domFields.coverLetter;
+            }
+            if (domFields.attachedHighlights) {
+                mergedProposal.attachedHighlights = domFields.attachedHighlights;
+            }
+            if (domFields.connectsSpent !== null && domFields.connectsSpent !== undefined) {
+                mergedTerms.connectsSpent = domFields.connectsSpent;
+            }
+            if (Object.keys(mergedTerms).length > 0) {
+                mergedProposal.terms = mergedTerms;
+            }
+
+            if (Object.keys(mergedProposal).length > 0) {
+                mergedData.proposal = mergedProposal;
+            }
+
+            return removeEmptySections(mergedData);
+        };
+
         const extractNuxtData = async (parsedDoc, sourceUrl = '') => {
             const scripts = Array.from(parsedDoc.querySelectorAll('script'));
             debugLog(`[Nuxt] ${sourceUrl || 'unknown-url'}: found ${scripts.length} script tags.`);
@@ -311,6 +474,12 @@
         const buildCompactProposalData = (proposalRecord) => {
             const compact = JSON.parse(JSON.stringify(proposalRecord || {}));
 
+            if (compact?.proposalDetailsPage?.pageData?.proposal) {
+                delete compact.proposalDetailsPage.pageData.proposal.answersToQuestions;
+            }
+            if (compact?.proposalDetailsPage?.pageData?.jobPost) {
+                delete compact.proposalDetailsPage.pageData.jobPost.jobPrompt;
+            }
             if (compact?.proposalDetailsPage?.data?.proposal) {
                 delete compact.proposalDetailsPage.data.proposal.answersToQuestions;
             }
@@ -382,18 +551,42 @@
 
                 const nuxtScript = await extractNuxtData(doc, linkData.href);
                 const rawNuxtData = await extractNuxtScalarData(nuxtScript, linkData.href);
-                const proposalDetailsData = buildCleanNuxtData(rawNuxtData, linkData);
-                const jobPostUrl = proposalDetailsData?.jobPost?.url || null;
+                const domCoverLetter = extractCoverLetterFromDom(doc, linkData.href);
+                const domAttachedHighlights = extractAttachedHighlightsFromDom(doc, linkData.href);
+                const domConnectsSpent = extractProposalConnectsFromDom(doc, linkData.href);
+                const proposalPageData = mergeDomProposalFields(
+                    buildCleanNuxtData(rawNuxtData, linkData),
+                    {
+                        coverLetter: domCoverLetter,
+                        attachedHighlights: domAttachedHighlights,
+                        connectsSpent: domConnectsSpent
+                    }
+                );
+                const pageDataSources = [];
+                if (nuxtScript) {
+                    pageDataSources.push('nuxt');
+                }
+                if (domCoverLetter || domAttachedHighlights || domConnectsSpent !== null) {
+                    pageDataSources.push('dom');
+                }
+                const jobPostUrl = proposalPageData?.jobPost?.url || null;
                 const jobPostFetchResult = await fetchJobPostRawData(jobPostUrl, linkData.href);
                 const jobPostData = jobPostFetchResult?.data || null;
-                const coverLetter = proposalDetailsData?.proposal?.coverLetter || null;
-                const description = proposalDetailsData?.jobPost?.description || null;
+                const coverLetter = proposalPageData?.proposal?.coverLetter || null;
+                const connectsSpent = proposalPageData?.proposal?.terms?.connectsSpent ?? null;
+                const attachedHighlightsCount = Array.isArray(
+                    proposalPageData?.proposal?.attachedHighlights?.items
+                )
+                    ? proposalPageData.proposal.attachedHighlights.items.length
+                    : 0;
+                const description = proposalPageData?.jobPost?.description || null;
                 const isHired = /hired/i.test(String(linkData.reason || ''));
 
                 debugLog(
-                    `[Proposal] ${linkData.href}: extracted from Nuxt -> description=${description ? description.length : 0} chars, ` +
-                    `coverLetter=${coverLetter ? coverLetter.length : 0} chars, hasNuxtScript=${!!nuxtScript}, ` +
-                    `dataSections=${Object.keys(proposalDetailsData || {}).join(',') || 'none'}, ` +
+                    `[Proposal] ${linkData.href}: extracted details -> description=${description ? description.length : 0} chars, ` +
+                    `coverLetter=${coverLetter ? coverLetter.length : 0} chars, domCoverLetter=${domCoverLetter ? domCoverLetter.length : 0} chars, ` +
+                    `attachedHighlights=${attachedHighlightsCount}, connectsSpent=${connectsSpent ?? 'none'}, pageDataSources=${pageDataSources.join('+') || 'none'}, ` +
+                    `pageDataSections=${Object.keys(proposalPageData || {}).join(',') || 'none'}, ` +
                     `hasJobPostData=${!!jobPostData}, isHired=${isHired}`
                 );
 
@@ -407,7 +600,8 @@
                     },
                     proposalDetailsPage: {
                         url: linkData.href,
-                        data: proposalDetailsData
+                        pageData: proposalPageData,
+                        pageDataSources
                     },
                     jobPostPage: {
                         url: jobPostUrl,

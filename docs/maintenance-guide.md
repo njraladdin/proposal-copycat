@@ -10,8 +10,32 @@ When making a change, start in the file that owns the behavior instead of patchi
 
 - [sidepanel.html](/c:/Users/Mega-PC/Desktop/projects/proposal-copycat/sidepanel.html)
   - shared shell layout and global panel styles
+  - static script tags for each site's `panel.js`
 - [sidepanel-shell.js](/c:/Users/Mega-PC/Desktop/projects/proposal-copycat/sidepanel-shell.js)
   - top-level site tabs and site loading
+- [manifest.json](/c:/Users/Mega-PC/Desktop/projects/proposal-copycat/manifest.json)
+  - host permissions
+  - `web_accessible_resources`
+- [background.js](/c:/Users/Mega-PC/Desktop/projects/proposal-copycat/background.js)
+  - shared background entry point
+  - `importScripts(...)` list for all site controllers
+
+### GitHub UI
+
+- [sites/github/panel.html](/c:/Users/Mega-PC/Desktop/projects/proposal-copycat/sites/github/panel.html)
+  - GitHub panel markup
+- [sites/github/panel.js](/c:/Users/Mega-PC/Desktop/projects/proposal-copycat/sites/github/panel.js)
+  - GitHub status rendering
+  - active-tab profile validation
+  - JSON load/copy/download helpers
+
+### GitHub Background
+
+- [sites/github/background/github-controller.js](/c:/Users/Mega-PC/Desktop/projects/proposal-copycat/sites/github/background/github-controller.js)
+  - profile detection
+  - public GitHub API calls
+  - README reuse / caching behavior
+  - storage writes and final status summaries
 
 ### Upwork UI
 
@@ -48,6 +72,44 @@ When making a change, start in the file that owns the behavior instead of patchi
   - run-state shape and labels
 
 ## If You Need To Change X, Start Here
+
+### Add a new site or wire an existing site into the shell
+
+Start with all of:
+
+- `sidepanel-shell.js`
+  - add the site to `SITE_REGISTRY`
+  - add the mount branch in `activateSite(...)`
+- `sidepanel.html`
+  - add a static `<script src="sites/<site>/panel.js"></script>`
+- `manifest.json`
+  - add `panel.html` to `web_accessible_resources`
+  - add any page-host permissions and API-host permissions
+- `background.js`
+  - add the site's background controller to `importScripts(...)` if it has one
+
+If a new site half-works, this shell wiring is the first place to look.
+
+### Change GitHub fetch behavior, caching, or rate-limit handling
+
+Start with:
+
+- `sites/github/background/github-controller.js`
+
+Check:
+
+- `parseGithubProfileTarget(...)`
+- repo-list fetch logic
+- README reuse rules
+- final status summary
+- saved snapshot shape
+
+### Change GitHub panel labels or export behavior
+
+Start with:
+
+- `sites/github/panel.html`
+- `sites/github/panel.js`
 
 ### Change a panel label or status card layout
 
@@ -115,7 +177,46 @@ Be careful.
 
 Storage key renames should usually include migration logic or a deliberate reset strategy. The Upwork panel, writers, and readers are tightly coupled to stable storage names.
 
+The same applies to the GitHub keys:
+
+- `githubProfileSnapshot`
+- `githubProfileStatus`
+- `githubProfileIsLoading`
+
 ## Common Debugging Tips
+
+### A site tab appears, but the panel does not initialize
+
+Check:
+
+- whether the site was added to `SITE_REGISTRY`
+- whether `panel.js` was added to `sidepanel.html`
+- whether `panel.html` was added to `web_accessible_resources`
+- whether the mount function name matches what `sidepanel-shell.js` calls
+
+### A panel sends messages but the background never responds
+
+Check:
+
+- whether the site's background controller was added to `background.js`
+- whether the message `action` string matches on both sides
+
+### GitHub says "open a GitHub profile page first"
+
+Check:
+
+- whether the active tab is a root profile URL like `https://github.com/<login>`
+- whether `manifest.json` includes page-host permissions for `github.com`
+- whether `parseGithubProfileTarget(...)` and `parseGithubProfileTab(...)` still agree on valid URLs
+
+### GitHub refetches too much or not enough
+
+Check:
+
+- `canReuseExistingReadme(...)` in `sites/github/background/github-controller.js`
+- whether `pushedAt` still reflects the right reuse boundary
+- whether you really want to reuse `missing` results or retry them every run
+- whether a repo was previously saved as `error` or `skipped`, which intentionally forces a retry later
 
 ### The run card is wrong or stale
 
@@ -159,9 +260,11 @@ Changes in any of those layers often require a full extension reload and then a 
 
 - Keep shared shell concerns in the shell files.
 - Keep site-specific behavior inside `sites/<site>/...`.
+- Document shell wiring when you add a site; this codebase mixes static script loading and lazy HTML loading.
 - Prefer storage-backed state for long-running tasks.
 - Avoid reintroducing popup-era assumptions like `window.close()`.
 - Keep storage key names stable unless you are intentionally migrating.
+- Treat page-host permissions and API-host permissions as different requirements.
 - When you add a long-running Upwork action, think about:
   - who starts it
   - where it runs
