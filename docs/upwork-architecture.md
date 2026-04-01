@@ -37,6 +37,10 @@ Upwork is the most complex part of the extension because it mixes:
   - proposal details parsing in page context
 - [sites/upwork/injected/job-post-page.js](/c:/Users/Mega-PC/Desktop/projects/proposal-copycat/sites/upwork/injected/job-post-page.js)
   - current job page parsing
+- [sites/upwork/injected/find-work-network-monitor.js](/c:/Users/Mega-PC/Desktop/projects/proposal-copycat/sites/upwork/injected/find-work-network-monitor.js)
+  - main-world request interception for the Find Work best-matches feed
+- [sites/upwork/injected/find-work-capture-bridge.js](/c:/Users/Mega-PC/Desktop/projects/proposal-copycat/sites/upwork/injected/find-work-capture-bridge.js)
+  - forwards intercepted Find Work responses back to the background controller
 - [sites/upwork/injected/proposal-scrape-run-state.js](/c:/Users/Mega-PC/Desktop/projects/proposal-copycat/sites/upwork/injected/proposal-scrape-run-state.js)
   - page-context run state writer
   - pause/stop polling logic
@@ -137,6 +141,28 @@ How it runs:
 Primary storage output:
 
 - `chrome.storage.local.activeJobPost`
+
+### Find Work Job List Tracking
+
+Triggered from the Job Posts tab via `Start Find Work Tracking`.
+
+Purpose:
+
+- attach tracking to the currently open `upwork.com/nx/find-work...` tab
+- intercept `bestMatchRecommendationsFeed.retrieve` GraphQL responses
+- save a lightweight deduped job list for later detail scraping
+
+How it runs:
+
+1. Panel sends `startFindWorkJobListTracking`.
+2. Background controller validates the active tab is already on the Find Work page.
+3. A main-world network monitor is injected into that tab.
+4. An isolated-world bridge forwards intercepted response payloads to the background controller.
+5. Background upserts deduped `uid`-keyed entries into storage and keeps run status updated until stop is requested.
+
+Primary storage output:
+
+- `chrome.storage.local.findWorkJobList`
 
 ### Job Posts From Saved Proposals
 

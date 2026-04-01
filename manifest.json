@@ -43,7 +43,8 @@
     {
       "resources": [
         "sites/upwork/injected/job-post-page.js",
-        "sites/upwork/injected/proposals-network-monitor.js"
+        "sites/upwork/injected/proposals-network-monitor.js",
+        "sites/upwork/injected/find-work-network-monitor.js"
       ],
       "matches": [
         "https://www.upwork.com/*"
@@ -56,6 +57,27 @@
       "matches": [
         "https://www.tiktok.com/*"
       ]
+    }
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.upwork.com/nx/find-work*"
+      ],
+      "js": [
+        "sites/upwork/injected/find-work-network-monitor.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://www.upwork.com/nx/find-work*"
+      ],
+      "js": [
+        "sites/upwork/injected/find-work-capture-bridge.js"
+      ],
+      "run_at": "document_start"
     }
   ],
   "sandbox": {

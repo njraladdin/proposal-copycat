@@ -84,6 +84,7 @@ Common `proposalDetailsPage.pageData.proposal.terms` fields:
 
 - `proposedRate`
 - `connectsSpent`
+- DOM-supplemented fields may also include `pricingType`, `profileName`, `profileUrl`, `clientBudget`, `clientBudgetDisplay`, `paymentMethod`, `proposedRateDisplay`, `proposedTotalPrice`, `proposedTotalPriceDisplay`, `estimatedReceiveAmount`, `estimatedReceiveDisplay`, and `rateIncrease`
 
 ### `activeJobPost[]`
 
@@ -93,6 +94,27 @@ Usage:
 
 - created by current job page scrape
 - mostly useful as a current-page snapshot rather than a historical batch dataset
+
+### `findWorkJobList[]`
+
+Lightweight Find Work job-list dataset captured from the best-matches feed.
+
+Common fields:
+
+- `uid`
+- `ciphertext`
+- `jobPostUrl`
+- `title`
+- `description`
+- `rawGraphql`
+- `captureContexts`
+- `sourceTab`
+- `scrapedAt`
+
+Usage:
+
+- created by Find Work request interception
+- intended later as the input list for a separate Find Work job-details capture flow
 
 ### `jobPosts[]`
 
@@ -111,10 +133,15 @@ The normal Upwork data pipeline is:
 2. `proposals[]`
 3. `jobPosts[]`
 
-And separately:
+Separately:
 
 1. current Upwork job page
 2. `activeJobPost[]`
+
+And separately:
+
+1. `findWorkJobList[]`
+2. future Find Work details dataset
 
 That means:
 

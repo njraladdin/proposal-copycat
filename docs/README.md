@@ -11,7 +11,8 @@ Use this as the starting point when you need to understand how the codebase is o
 3. [Upwork Architecture](./upwork-architecture.md)
 4. [Upwork Run Status](./upwork-run-status.md)
 5. [Upwork Data Model](./upwork-data-model.md)
-6. [Maintenance Guide](./maintenance-guide.md)
+6. [Upwork Find Work Capture Report](./upwork-find-work-capture-report.md)
+7. [Maintenance Guide](./maintenance-guide.md)
 
 ## What Each File Covers
 
@@ -35,6 +36,10 @@ Use this as the starting point when you need to understand how the codebase is o
 - [upwork-data-model.md](./upwork-data-model.md)
   - important Upwork storage datasets
   - how the datasets relate to each other
+- [upwork-find-work-capture-report.md](./upwork-find-work-capture-report.md)
+  - what happened during the Find Work capture implementation
+  - why page-level interception failed
+  - why debugger-based capture worked
 - [maintenance-guide.md](./maintenance-guide.md)
   - file ownership
   - "change X, start here"

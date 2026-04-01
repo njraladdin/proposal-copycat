@@ -276,6 +276,163 @@
             return Number.isFinite(parsed) ? parsed : null;
         };
 
+        const parseMoneyAmount = (value) => {
+            const normalized = normalizeInlineText(value);
+            if (!normalized) {
+                return null;
+            }
+
+            const match = normalized.match(/-?\d[\d,]*(?:\.\d+)?/);
+            if (!match) {
+                return null;
+            }
+
+            const parsed = Number.parseFloat(match[0].replace(/,/g, ''));
+            return Number.isFinite(parsed) ? parsed : null;
+        };
+
+        const normalizeResolvedUrl = (href, sourceUrl = '') => {
+            const normalizedHref = normalizeInlineText(href);
+            if (!normalizedHref) {
+                return null;
+            }
+
+            try {
+                return new URL(normalizedHref, sourceUrl || 'https://www.upwork.com').href;
+            } catch (error) {
+                return normalizedHref;
+            }
+        };
+
+        const extractTermsBlockValue = (block) => {
+            if (!block) {
+                return null;
+            }
+
+            const candidates = Array.from(
+                block.querySelectorAll('.text-body, .text-body-sm, p.rate')
+            )
+                .map((node) => normalizeInlineText(node.textContent))
+                .filter(Boolean);
+            if (candidates.length > 0) {
+                return candidates[candidates.length - 1];
+            }
+
+            const clonedBlock = block.cloneNode(true);
+            clonedBlock.querySelector('strong')?.remove();
+            return normalizeInlineText(clonedBlock.textContent || '');
+        };
+
+        const extractShortestMatchingText = (root, pattern) => {
+            if (!root) {
+                return null;
+            }
+
+            const uniqueMatches = Array.from(root.querySelectorAll('*'))
+                .map((node) => normalizeInlineText(node.textContent))
+                .filter((text, index, allTexts) => (
+                    !!text &&
+                    pattern.test(text) &&
+                    allTexts.indexOf(text) === index
+                ))
+                .sort((left, right) => left.length - right.length);
+
+            return uniqueMatches[0] || null;
+        };
+
+        const selectBestScoredCandidate = (candidates = []) => candidates.reduce((best, candidate) => {
+            if (!candidate) {
+                return best;
+            }
+
+            if (!best || Number(candidate.score) > Number(best.score)) {
+                return candidate;
+            }
+
+            return best;
+        }, null);
+
+        const parseProposalPricingTermsSection = (pricingSection) => {
+            if (!pricingSection) {
+                return null;
+            }
+
+            const extractedTerms = {};
+            let inferredPricingType = null;
+            let score = 0;
+            const termBlocks = Array.from(pricingSection.children)
+                .filter((node) => node?.nodeType === 1 && node.tagName !== 'HR');
+
+            for (const block of termBlocks) {
+                const label = normalizeInlineText(block.querySelector('strong')?.textContent || '');
+                const valueText = extractTermsBlockValue(block);
+                if (!label || !valueText) {
+                    continue;
+                }
+
+                switch (label.toLowerCase()) {
+                    case 'hourly rate':
+                        inferredPricingType = 'hourly';
+                        setIfPresent(extractedTerms, 'proposedRate', parseMoneyAmount(valueText));
+                        setIfPresent(extractedTerms, 'proposedRateDisplay', valueText);
+                        score += 4;
+                        if (/\/\s*hr\b/i.test(valueText)) {
+                            score += 2;
+                        }
+                        break;
+                    case 'total price of project':
+                        inferredPricingType = 'fixed-price';
+                        setIfPresent(extractedTerms, 'proposedTotalPrice', parseMoneyAmount(valueText));
+                        setIfPresent(extractedTerms, 'proposedTotalPriceDisplay', valueText);
+                        score += 4;
+                        break;
+                    case 'how do you want to be paid?':
+                        setIfPresent(extractedTerms, 'paymentMethod', valueText);
+                        score += 1;
+                        if (/by project/i.test(valueText)) {
+                            inferredPricingType = inferredPricingType || 'fixed-price';
+                            score += 1;
+                        }
+                        break;
+                    case 'you\'ll receive':
+                        setIfPresent(extractedTerms, 'estimatedReceiveAmount', parseMoneyAmount(valueText));
+                        setIfPresent(extractedTerms, 'estimatedReceiveDisplay', valueText);
+                        score += 1;
+                        if (/\/\s*hr\b/i.test(valueText)) {
+                            score += 1;
+                        }
+                        break;
+                    default:
+                        break;
+                }
+            }
+
+            const dataTestValue = normalizeInlineText(pricingSection.getAttribute('data-test') || '');
+            if (!inferredPricingType) {
+                if (/terms-review-hourly/i.test(dataTestValue || '')) {
+                    inferredPricingType = 'hourly';
+                } else if (/terms-review-fixed-price/i.test(dataTestValue || '')) {
+                    inferredPricingType = 'fixed-price';
+                }
+            } else if (
+                (inferredPricingType === 'hourly' && /terms-review-hourly/i.test(dataTestValue || '')) ||
+                (inferredPricingType === 'fixed-price' && /terms-review-fixed-price/i.test(dataTestValue || ''))
+            ) {
+                score += 1;
+            }
+
+            setIfPresent(extractedTerms, 'pricingType', inferredPricingType);
+
+            if (!Object.keys(extractedTerms).length) {
+                return null;
+            }
+
+            return {
+                terms: extractedTerms,
+                score
+            };
+        };
+
         const extractCoverLetterFromDom = (parsedDoc, sourceUrl = '') => {
             const coverLetterSection = parsedDoc?.querySelector('[data-cy="cover-letter-section"]');
             if (!coverLetterSection) {
@@ -352,6 +509,90 @@
             return attachedHighlights;
         };
 
+        const extractProposalTermsFromDom = (parsedDoc, sourceUrl = '') => {
+            const termsSections = Array.from(parsedDoc?.querySelectorAll('[data-test="terms-review"]') || []);
+            if (!termsSections.length) {
+                return null;
+            }
+
+            const bestTermsCandidate = selectBestScoredCandidate(
+                termsSections.map((termsSection) => {
+                    const terms = {};
+                    let score = 0;
+                    const profileLink = termsSection.querySelector('.specialized-profile-info a');
+                    const profileName = normalizeInlineText(profileLink?.textContent || '');
+                    const profileUrl = normalizeResolvedUrl(
+                        profileLink?.getAttribute('href') || '',
+                        sourceUrl
+                    );
+                    setIfPresent(terms, 'profileName', profileName);
+                    setIfPresent(terms, 'profileUrl', profileUrl);
+                    if (profileName) {
+                        score += 1;
+                    }
+                    if (profileUrl) {
+                        score += 1;
+                    }
+
+                    const clientBudgetText = extractShortestMatchingText(termsSection, /^Client's budget:/i);
+                    const clientBudgetDisplay = normalizeInlineText(
+                        (clientBudgetText || '').replace(/^Client's budget:\s*/i, '')
+                    );
+                    const clientBudget = parseMoneyAmount(clientBudgetDisplay);
+                    setIfPresent(terms, 'clientBudget', clientBudget);
+                    setIfPresent(terms, 'clientBudgetDisplay', clientBudgetDisplay);
+                    if (clientBudget !== null) {
+                        score += 1;
+                    }
+                    if (clientBudgetDisplay) {
+                        score += 1;
+                    }
+
+                    const bestPricingCandidate = selectBestScoredCandidate(
+                        Array.from(
+                            termsSection.querySelectorAll(
+                                '[data-test="terms-review-hourly"], [data-test="terms-review-fixed-price"]'
+                            )
+                        ).map((pricingSection) => parseProposalPricingTermsSection(pricingSection))
+                    );
+                    if (bestPricingCandidate?.terms) {
+                        Object.assign(terms, bestPricingCandidate.terms);
+                        score += bestPricingCandidate.score;
+                    }
+
+                    const rateIncrease = normalizeInlineText(
+                        termsSection.querySelector('.sri-review p.rate')?.textContent ||
+                        termsSection.querySelector('.sri-review .rate')?.textContent ||
+                        ''
+                    );
+                    setIfPresent(terms, 'rateIncrease', rateIncrease);
+                    if (rateIncrease) {
+                        score += 1;
+                    }
+
+                    if (!Object.keys(terms).length) {
+                        return null;
+                    }
+
+                    return {
+                        terms,
+                        score
+                    };
+                })
+            );
+
+            if (!bestTermsCandidate?.terms) {
+                return null;
+            }
+
+            debugLog(
+                `[Proposal] ${sourceUrl || 'unknown-url'}: extracted DOM proposed terms ` +
+                `(${Object.keys(bestTermsCandidate.terms).join(', ')}).`
+            );
+
+            return bestTermsCandidate.terms;
+        };
+
         const extractProposalConnectsFromDom = (parsedDoc, sourceUrl = '') => {
             const boostSection = parsedDoc?.querySelector('.boost-information-section');
             if (!boostSection) {
@@ -376,6 +617,42 @@
             return connectsSpent;
         };
 
+        const normalizeProposalTermsByPricingType = (terms) => {
+            const normalizedTerms = terms && typeof terms === 'object' && !Array.isArray(terms)
+                ? { ...terms }
+                : {};
+            let pricingType = normalizeInlineText(normalizedTerms.pricingType || '');
+
+            if (!pricingType) {
+                if (
+                    normalizedTerms.proposedRate !== undefined ||
+                    normalizedTerms.proposedRateDisplay ||
+                    /\/\s*hr\b/i.test(String(normalizedTerms.estimatedReceiveDisplay || ''))
+                ) {
+                    pricingType = 'hourly';
+                } else if (
+                    normalizedTerms.proposedTotalPrice !== undefined ||
+                    normalizedTerms.proposedTotalPriceDisplay ||
+                    /by project/i.test(String(normalizedTerms.paymentMethod || ''))
+                ) {
+                    pricingType = 'fixed-price';
+                }
+            }
+
+            if (pricingType === 'hourly') {
+                normalizedTerms.pricingType = 'hourly';
+                delete normalizedTerms.paymentMethod;
+                delete normalizedTerms.proposedTotalPrice;
+                delete normalizedTerms.proposedTotalPriceDisplay;
+            } else if (pricingType === 'fixed-price') {
+                normalizedTerms.pricingType = 'fixed-price';
+                delete normalizedTerms.proposedRate;
+                delete normalizedTerms.proposedRateDisplay;
+            }
+
+            return normalizedTerms;
+        };
+
         const mergeDomProposalFields = (proposalDetailsData, domFields = {}) => {
             const mergedData = proposalDetailsData && typeof proposalDetailsData === 'object'
                 ? { ...proposalDetailsData }
@@ -393,11 +670,15 @@
             if (domFields.attachedHighlights) {
                 mergedProposal.attachedHighlights = domFields.attachedHighlights;
             }
+            if (domFields.terms && typeof domFields.terms === 'object') {
+                Object.assign(mergedTerms, domFields.terms);
+            }
             if (domFields.connectsSpent !== null && domFields.connectsSpent !== undefined) {
                 mergedTerms.connectsSpent = domFields.connectsSpent;
             }
-            if (Object.keys(mergedTerms).length > 0) {
-                mergedProposal.terms = mergedTerms;
+            const normalizedTerms = normalizeProposalTermsByPricingType(mergedTerms);
+            if (Object.keys(normalizedTerms).length > 0) {
+                mergedProposal.terms = normalizedTerms;
             }
 
             if (Object.keys(mergedProposal).length > 0) {
@@ -553,20 +834,25 @@
                 const rawNuxtData = await extractNuxtScalarData(nuxtScript, linkData.href);
                 const domCoverLetter = extractCoverLetterFromDom(doc, linkData.href);
                 const domAttachedHighlights = extractAttachedHighlightsFromDom(doc, linkData.href);
+                const domTerms = extractProposalTermsFromDom(doc, linkData.href) || {};
                 const domConnectsSpent = extractProposalConnectsFromDom(doc, linkData.href);
+                if (domConnectsSpent !== null && domConnectsSpent !== undefined) {
+                    domTerms.connectsSpent = domConnectsSpent;
+                }
+                const hasDomTerms = Object.keys(domTerms).length > 0;
                 const proposalPageData = mergeDomProposalFields(
                     buildCleanNuxtData(rawNuxtData, linkData),
                     {
                         coverLetter: domCoverLetter,
                         attachedHighlights: domAttachedHighlights,
-                        connectsSpent: domConnectsSpent
+                        terms: hasDomTerms ? domTerms : null
                     }
                 );
                 const pageDataSources = [];
                 if (nuxtScript) {
                     pageDataSources.push('nuxt');
                 }
-                if (domCoverLetter || domAttachedHighlights || domConnectsSpent !== null) {
+                if (domCoverLetter || domAttachedHighlights || hasDomTerms) {
                     pageDataSources.push('dom');
                 }
                 const jobPostUrl = proposalPageData?.jobPost?.url || null;
@@ -574,6 +860,7 @@
                 const jobPostData = jobPostFetchResult?.data || null;
                 const coverLetter = proposalPageData?.proposal?.coverLetter || null;
                 const connectsSpent = proposalPageData?.proposal?.terms?.connectsSpent ?? null;
+                const proposalTermsFieldCount = Object.keys(proposalPageData?.proposal?.terms || {}).length;
                 const attachedHighlightsCount = Array.isArray(
                     proposalPageData?.proposal?.attachedHighlights?.items
                 )
@@ -585,7 +872,7 @@
                 debugLog(
                     `[Proposal] ${linkData.href}: extracted details -> description=${description ? description.length : 0} chars, ` +
                     `coverLetter=${coverLetter ? coverLetter.length : 0} chars, domCoverLetter=${domCoverLetter ? domCoverLetter.length : 0} chars, ` +
-                    `attachedHighlights=${attachedHighlightsCount}, connectsSpent=${connectsSpent ?? 'none'}, pageDataSources=${pageDataSources.join('+') || 'none'}, ` +
+                    `attachedHighlights=${attachedHighlightsCount}, termsFields=${proposalTermsFieldCount}, connectsSpent=${connectsSpent ?? 'none'}, pageDataSources=${pageDataSources.join('+') || 'none'}, ` +
                     `pageDataSections=${Object.keys(proposalPageData || {}).join(',') || 'none'}, ` +
                     `hasJobPostData=${!!jobPostData}, isHired=${isHired}`
                 );

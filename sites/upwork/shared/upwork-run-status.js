@@ -19,12 +19,22 @@
         const scrapeJobPostsFromSavedList = options?.scrapeJobPostsFromSavedList === true;
         const scrapeArchivedListOnly = options?.scrapeArchivedListOnly === true;
         const scrapeProposalDetailsFromList = options?.scrapeProposalDetailsFromList === true;
+        const trackFindWorkJobList = options?.trackFindWorkJobList === true;
         const scrapeDetailsFromSavedList = (
             scrapeProposalDetailsFromList &&
             !scrapeArchivedListOnly &&
             !scrapeCurrentJobPost &&
-            !scrapeJobPostsFromSavedList
+            !scrapeJobPostsFromSavedList &&
+            !trackFindWorkJobList
         );
+
+        if (trackFindWorkJobList) {
+            return {
+                runKind: 'find-work-job-list',
+                statusTitle: 'Tracking Find Work Jobs',
+                modeBadgeText: 'Find Work: Best Matches'
+            };
+        }
 
         if (scrapeCurrentJobPost) {
             return {
@@ -76,6 +86,7 @@
     const createRunStatusPayload = (input = {}) => {
         const descriptor = getRunDescriptor({
             scrapeMode: input?.scrapeMode,
+            trackFindWorkJobList: input?.runKind === 'find-work-job-list',
             scrapeCurrentJobPost: input?.runKind === 'current-job-post',
             scrapeJobPostsFromSavedList: input?.runKind === 'job-posts-from-saved-list',
             scrapeArchivedListOnly: input?.runKind === 'archived-proposal-list',

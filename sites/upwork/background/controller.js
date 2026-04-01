@@ -8,6 +8,12 @@ const INJECTED_SCRAPER_HELPER_FILES = [
 const MAIN_WORLD_SCRAPER_HELPER_FILES = [
     'sites/upwork/injected/proposals-network-monitor.js'
 ];
+const FIND_WORK_INJECTED_HELPER_FILES = [
+    'sites/upwork/injected/find-work-capture-bridge.js'
+];
+const FIND_WORK_MAIN_WORLD_HELPER_FILES = [
+    'sites/upwork/injected/find-work-network-monitor.js'
+];
 
 const DEBUGGER_ENABLED_FOR_LIST_SCRAPE = true;
 const DEBUGGER_PROTOCOL_VERSION = '1.3';
@@ -23,6 +29,13 @@ const DEBUGGER_DETAILS_INTER_ITEM_DELAY_MS = 250;
 const DEBUGGER_DETAILS_DOM_WAIT_MS = 4000;
 const DEBUGGER_DETAILS_DOM_POLL_MS = 200;
 const DEBUGGER_STOP_REQUESTED_ERROR_CODE = 'proposal_copycat_stop_requested';
+const FIND_WORK_URL = 'https://www.upwork.com/nx/find-work';
+const FIND_WORK_GRAPHQL_ALIAS = 'bestMatchRecommendationsFeed.retrieve';
+const FIND_WORK_JOB_LIST_STORAGE_KEY = 'findWorkJobList';
+const FIND_WORK_TRACKING_SESSION_STORAGE_KEY = 'upworkFindWorkTrackingSession';
+const FIND_WORK_SOURCE_TAB = 'best-matches';
+const FIND_WORK_SOURCE_LABEL = 'find-work-best-matches';
+const FIND_WORK_LOG_PREFIX = '[ProposalCopycatFindWork]';
 
 const upworkRunStatusModule = globalThis.ProposalCopycatUpworkRunStatusModule || {};
 const UPWORK_RUN_STATUS_STORAGE_KEY = upworkRunStatusModule.RUN_STATUS_STORAGE_KEY || 'upworkRunStatus';
@@ -48,6 +61,7 @@ const debuggerSessions = new Map();
 let debuggerListenersInstalled = false;
 let proposalListWriteQueue = Promise.resolve();
 let proposalDetailsWriteQueue = Promise.resolve();
+let findWorkJobListWriteQueue = Promise.resolve();
 let upworkRunStatusWriteQueue = Promise.resolve();
 
 function isReasonAllowedForMode(reason, scrapeMode) {
@@ -202,6 +216,20 @@ function safeParseJsonPayload(rawText) {
     }
 }
 
+function decodeBodyForMatching(rawText) {
+    const raw = String(rawText || '').trim();
+    if (!raw) {
+        return '';
+    }
+
+    const normalized = raw.replace(/\+/g, ' ');
+    try {
+        return decodeURIComponent(normalized);
+    } catch (error) {
+        return raw;
+    }
+}
+
 function buildProposalEntryFromNode(node, scrapeMode, options = {}) {
     if (!node || typeof node !== 'object' || Array.isArray(node)) {
         return null;
@@ -326,6 +354,261 @@ function extractProposalLinksFromGraphqlResponse(rawResponseText, scrapeMode) {
     return links;
 }
 
+function isFindWorkPageUrl(urlValue) {
+    return String(urlValue || '').startsWith(FIND_WORK_URL);
+}
+
+function extractFindWorkFeedPayload(rawResponseText) {
+    const parsedResponse = safeParseJsonPayload(rawResponseText);
+    if (!parsedResponse) {
+        return null;
+    }
+
+    const buildPayloadFromCandidate = (candidate, payloadPath = '') => {
+        if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+            return null;
+        }
+
+        const results = Array.isArray(candidate.results) ? candidate.results : [];
+        if (!results.length) {
+            return null;
+        }
+
+        const likelyResults = results.filter((item) => (
+            item &&
+            typeof item === 'object' &&
+            !Array.isArray(item) &&
+            pickFirstString(
+                item.uid,
+                item.jobUid,
+                item.id,
+                item.job?.uid,
+                item.job?.id
+            ) &&
+            pickFirstString(
+                item.ciphertext,
+                item.jobCiphertext,
+                item.job?.ciphertext,
+                item.jobPostUrl,
+                item.url,
+                item.job?.url
+            ) &&
+            pickFirstString(
+                item.title,
+                item.jobTitle,
+                item.job?.title
+            )
+        ));
+
+        if (!likelyResults.length) {
+            return null;
+        }
+
+        const responseContext = {
+            resultsCount: results.length,
+            matchedResultsCount: likelyResults.length,
+            payloadPath
+        };
+
+        for (const [key, value] of Object.entries(candidate)) {
+            if (key === 'results') {
+                continue;
+            }
+            responseContext[key] = value;
+        }
+
+        return {
+            results: likelyResults,
+            responseContext
+        };
+    };
+
+    const directPayload = buildPayloadFromCandidate(
+        parsedResponse?.data?.bestMatchRecommendationsFeed || parsedResponse?.bestMatchRecommendationsFeed,
+        'data.bestMatchRecommendationsFeed'
+    );
+    if (directPayload) {
+        return directPayload;
+    }
+
+    const objectNodes = collectObjectNodes(parsedResponse);
+    for (const node of objectNodes) {
+        const candidatePayload = buildPayloadFromCandidate(node, 'fallback.results');
+        if (candidatePayload) {
+            return candidatePayload;
+        }
+    }
+
+    return null;
+}
+
+function buildFindWorkCaptureContext(eventPayload, senderTab, responseContext, resultIndex) {
+    const payload = eventPayload && typeof eventPayload === 'object' ? eventPayload : {};
+    return {
+        capturedAt: new Date(Number(payload.capturedAtMs) || Date.now()).toISOString(),
+        requestStartedAt: new Date(Number(payload.requestStartedAtMs) || Number(payload.capturedAtMs) || Date.now()).toISOString(),
+        transport: String(payload.transport || ''),
+        sourceTab: FIND_WORK_SOURCE_TAB,
+        tabId: Number.isFinite(Number(senderTab?.id)) ? Number(senderTab.id) : null,
+        pageUrl: String(payload.pageUrl || senderTab?.url || '').trim(),
+        pageTitle: String(payload.pageTitle || senderTab?.title || '').trim(),
+        requestUrl: String(payload.url || '').trim(),
+        requestMethod: String(payload.method || 'POST').trim().toUpperCase(),
+        graphqlAlias: String(payload.graphqlAlias || aliasFromGraphqlUrl(payload.url) || '').trim(),
+        responseStatus: Number.isFinite(Number(payload.status)) ? Number(payload.status) : null,
+        matchReason: String(payload.matchReason || '').trim(),
+        monitorSeq: Number.isFinite(Number(payload.monitorSeq)) ? Number(payload.monitorSeq) : null,
+        resultIndex: Number.isFinite(Number(resultIndex)) ? Number(resultIndex) : null,
+        responseContext: responseContext && typeof responseContext === 'object' ? responseContext : null
+    };
+}
+
+function sanitizeFindWorkCaptureContext(context) {
+    if (!context || typeof context !== 'object' || Array.isArray(context)) {
+        return null;
+    }
+
+    const sanitized = {
+        capturedAt: String(context.capturedAt || '').trim(),
+        requestStartedAt: String(context.requestStartedAt || '').trim(),
+        transport: String(context.transport || '').trim(),
+        sourceTab: String(context.sourceTab || '').trim(),
+        tabId: Number.isFinite(Number(context.tabId)) ? Number(context.tabId) : null,
+        pageUrl: String(context.pageUrl || '').trim(),
+        pageTitle: String(context.pageTitle || '').trim(),
+        requestUrl: String(context.requestUrl || '').trim(),
+        requestMethod: String(context.requestMethod || '').trim().toUpperCase(),
+        graphqlAlias: String(context.graphqlAlias || '').trim(),
+        responseStatus: Number.isFinite(Number(context.responseStatus)) ? Number(context.responseStatus) : null,
+        matchReason: String(context.matchReason || '').trim(),
+        monitorSeq: Number.isFinite(Number(context.monitorSeq)) ? Number(context.monitorSeq) : null,
+        resultIndex: Number.isFinite(Number(context.resultIndex)) ? Number(context.resultIndex) : null,
+        responseContext: context.responseContext && typeof context.responseContext === 'object' && !Array.isArray(context.responseContext)
+            ? context.responseContext
+            : null
+    };
+
+    for (const [key, value] of Object.entries(sanitized)) {
+        if (
+            value === null ||
+            value === '' ||
+            value === undefined ||
+            (typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0)
+        ) {
+            delete sanitized[key];
+        }
+    }
+
+    return Object.keys(sanitized).length > 0 ? sanitized : null;
+}
+
+function buildFindWorkJobEntryFromNode(node, eventPayload, senderTab, responseContext, resultIndex) {
+    if (!node || typeof node !== 'object' || Array.isArray(node)) {
+        return null;
+    }
+
+    const uid = pickFirstString(
+        node.uid,
+        node.jobUid,
+        node.id,
+        node.job?.uid,
+        node.job?.id
+    );
+    if (!uid) {
+        return null;
+    }
+
+    const ciphertext = pickFirstString(
+        node.ciphertext,
+        node.jobCiphertext,
+        node.job?.ciphertext
+    );
+    const jobPostUrl = normalizeJobPostHref(pickFirstString(
+        node.jobPostUrl,
+        node.url,
+        node.canonicalUrl,
+        node.job?.url,
+        node.job?.jobPostUrl,
+        ciphertext
+    ));
+    const title = pickFirstString(
+        node.title,
+        node.jobTitle,
+        node.job?.title
+    ) || 'Untitled Job';
+    const description = pickFirstString(
+        node.description,
+        node.jobDescription,
+        node.job?.description
+    );
+
+    return {
+        uid,
+        ciphertext,
+        jobPostUrl,
+        title,
+        description,
+        source: FIND_WORK_SOURCE_LABEL,
+        sourceTab: FIND_WORK_SOURCE_TAB,
+        rawGraphql: node,
+        captureContext: buildFindWorkCaptureContext(eventPayload, senderTab, responseContext, resultIndex)
+    };
+}
+
+function buildFindWorkCaptureContextSignature(context) {
+    const normalizedContext = sanitizeFindWorkCaptureContext(context) || {};
+    const normalized = {
+        sourceTab: String(normalizedContext.sourceTab || ''),
+        pageUrl: String(normalizedContext.pageUrl || ''),
+        requestUrl: String(normalizedContext.requestUrl || ''),
+        requestMethod: String(normalizedContext.requestMethod || ''),
+        graphqlAlias: String(normalizedContext.graphqlAlias || ''),
+        resultIndex: Number.isFinite(Number(normalizedContext.resultIndex)) ? Number(normalizedContext.resultIndex) : null,
+        responseContext: normalizedContext.responseContext || null
+    };
+
+    try {
+        return JSON.stringify(normalized);
+    } catch (error) {
+        return [
+            normalized.sourceTab,
+            normalized.pageUrl,
+            normalized.requestUrl,
+            normalized.requestMethod,
+            normalized.graphqlAlias,
+            String(normalized.resultIndex ?? '')
+        ].join('|');
+    }
+}
+
+function mergeFindWorkCaptureContexts(existingContexts, incomingContext) {
+    const merged = Array.isArray(existingContexts)
+        ? existingContexts
+            .map((entry) => sanitizeFindWorkCaptureContext(entry))
+            .filter(Boolean)
+        : [];
+    const sanitizedIncomingContext = sanitizeFindWorkCaptureContext(incomingContext);
+    if (!sanitizedIncomingContext) {
+        return merged;
+    }
+
+    const incomingSignature = buildFindWorkCaptureContextSignature(sanitizedIncomingContext);
+    const existingIndex = merged.findIndex((entry) => (
+        buildFindWorkCaptureContextSignature(entry) === incomingSignature
+    ));
+
+    if (existingIndex >= 0) {
+        merged[existingIndex] = {
+            ...merged[existingIndex],
+            ...sanitizedIncomingContext
+        };
+        return merged;
+    }
+
+    merged.push(sanitizedIncomingContext);
+    return merged;
+}
+
 function isTargetGraphqlRequestUrl(urlValue) {
     try {
         const url = new URL(String(urlValue || ''), DEBUGGER_TARGET_ORIGIN);
@@ -390,6 +673,14 @@ function aliasFromGraphqlUrl(urlValue) {
     try {
         const url = new URL(String(urlValue || ''), DEBUGGER_TARGET_ORIGIN);
         return String(url.searchParams.get('alias') || '').trim();
+    } catch (error) {
+        return '';
+    }
+}
+
+function shortPathFromUrl(urlValue) {
+    try {
+        return new URL(String(urlValue || ''), DEBUGGER_TARGET_ORIGIN).pathname || '';
     } catch (error) {
         return '';
     }
@@ -467,6 +758,16 @@ function queueProposalDetailsUpsert(detailEntry, sourceLabel) {
     return proposalDetailsWriteQueue;
 }
 
+function queueFindWorkJobListUpsert(entries, sourceLabel) {
+    findWorkJobListWriteQueue = findWorkJobListWriteQueue
+        .then(() => upsertFindWorkJobEntries(entries, sourceLabel))
+        .catch((error) => {
+            console.warn(`${DEBUGGER_LOG_PREFIX} failed to upsert find-work jobs:`, error);
+            return null;
+        });
+    return findWorkJobListWriteQueue;
+}
+
 function queueUpworkRunStatusUpdate(update, options = {}) {
     upworkRunStatusWriteQueue = upworkRunStatusWriteQueue
         .then(async () => {
@@ -505,6 +806,15 @@ async function setUpworkRunControlState(nextControl = {}) {
 async function getUpworkRunControlState() {
     const storage = await chrome.storage.local.get(UPWORK_RUN_CONTROL_STORAGE_KEY);
     return normalizeUpworkRunControl(storage?.[UPWORK_RUN_CONTROL_STORAGE_KEY]);
+}
+
+async function getFindWorkTrackingSession() {
+    const storage = await chrome.storage.local.get(FIND_WORK_TRACKING_SESSION_STORAGE_KEY);
+    const session = storage?.[FIND_WORK_TRACKING_SESSION_STORAGE_KEY];
+    if (!session || typeof session !== 'object') {
+        return null;
+    }
+    return session;
 }
 
 function createDebuggerStopRequestedError() {
@@ -611,6 +921,84 @@ async function upsertProposalListEntries(entries, sourceLabel = 'debugger') {
     return {
         upsertedCount,
         totalSize: listByHref.size
+    };
+}
+
+async function upsertFindWorkJobEntries(entries, sourceLabel = FIND_WORK_SOURCE_LABEL) {
+    const normalizedEntries = Array.isArray(entries) ? entries : [];
+    if (!normalizedEntries.length) {
+        return {
+            upsertedCount: 0,
+            insertedCount: 0,
+            updatedCount: 0,
+            totalSize: 0
+        };
+    }
+
+    const storageUpdate = await chrome.storage.local.get(FIND_WORK_JOB_LIST_STORAGE_KEY);
+    const existingList = Array.isArray(storageUpdate[FIND_WORK_JOB_LIST_STORAGE_KEY])
+        ? storageUpdate[FIND_WORK_JOB_LIST_STORAGE_KEY]
+        : [];
+    const listByUid = new Map();
+
+    for (const entry of existingList) {
+        const uid = String(entry?.uid || '').trim();
+        if (uid) {
+            listByUid.set(uid, entry);
+        }
+    }
+
+    const scrapedAtIso = new Date().toISOString();
+    let upsertedCount = 0;
+    let insertedCount = 0;
+    let updatedCount = 0;
+
+    for (const item of normalizedEntries) {
+        const uid = String(item?.uid || '').trim();
+        if (!uid) {
+            continue;
+        }
+
+        const previous = listByUid.get(uid) || {};
+        const hadExisting = listByUid.has(uid);
+        const mergedCaptureContexts = mergeFindWorkCaptureContexts(previous.captureContexts, item?.captureContext);
+
+        listByUid.set(uid, {
+            ...previous,
+            uid,
+            ciphertext: String(item?.ciphertext || previous.ciphertext || '').trim(),
+            jobPostUrl: String(item?.jobPostUrl || previous.jobPostUrl || '').trim(),
+            title: String(item?.title || previous.title || '').trim(),
+            description: String(item?.description || previous.description || '').trim(),
+            source: String(item?.source || previous.source || sourceLabel || FIND_WORK_SOURCE_LABEL).trim(),
+            sourceTab: String(item?.sourceTab || previous.sourceTab || FIND_WORK_SOURCE_TAB).trim(),
+            firstScrapedAt: previous.firstScrapedAt || scrapedAtIso,
+            scrapedAt: scrapedAtIso,
+            rawGraphql: (
+                item?.rawGraphql !== undefined
+                    ? item.rawGraphql
+                    : (previous.rawGraphql ?? null)
+            ),
+            captureContexts: mergedCaptureContexts
+        });
+
+        upsertedCount += 1;
+        if (hadExisting) {
+            updatedCount += 1;
+        } else {
+            insertedCount += 1;
+        }
+    }
+
+    await chrome.storage.local.set({
+        [FIND_WORK_JOB_LIST_STORAGE_KEY]: Array.from(listByUid.values())
+    });
+
+    return {
+        upsertedCount,
+        insertedCount,
+        updatedCount,
+        totalSize: listByUid.size
     };
 }
 
@@ -741,6 +1129,42 @@ function maybeSetNestedJobUrl(data, jobUrl) {
     };
 }
 
+function normalizeMergedProposalTerms(terms) {
+    const normalizedTerms = terms && typeof terms === 'object' && !Array.isArray(terms)
+        ? { ...terms }
+        : {};
+    let pricingType = String(normalizedTerms.pricingType || '').trim().toLowerCase();
+
+    if (!pricingType) {
+        if (
+            normalizedTerms.proposedRate !== undefined ||
+            normalizedTerms.proposedRateDisplay ||
+            /\/\s*hr\b/i.test(String(normalizedTerms.estimatedReceiveDisplay || ''))
+        ) {
+            pricingType = 'hourly';
+        } else if (
+            normalizedTerms.proposedTotalPrice !== undefined ||
+            normalizedTerms.proposedTotalPriceDisplay ||
+            /by project/i.test(String(normalizedTerms.paymentMethod || ''))
+        ) {
+            pricingType = 'fixed-price';
+        }
+    }
+
+    if (pricingType === 'hourly') {
+        normalizedTerms.pricingType = 'hourly';
+        delete normalizedTerms.paymentMethod;
+        delete normalizedTerms.proposedTotalPrice;
+        delete normalizedTerms.proposedTotalPriceDisplay;
+    } else if (pricingType === 'fixed-price') {
+        normalizedTerms.pricingType = 'fixed-price';
+        delete normalizedTerms.proposedRate;
+        delete normalizedTerms.proposedRateDisplay;
+    }
+
+    return normalizedTerms;
+}
+
 function mergeProposalDetailsPageData(existingData, incomingData, jobUrl = '') {
     const baseData = existingData && typeof existingData === 'object'
         ? { ...existingData }
@@ -783,10 +1207,10 @@ function mergeProposalDetailsPageData(existingData, incomingData, jobUrl = '') {
         if (hasExistingTerms || hasIncomingTerms) {
             baseData.proposal = {
                 ...baseData.proposal,
-                terms: {
+                terms: normalizeMergedProposalTerms({
                     ...(hasExistingTerms ? existingTerms : {}),
                     ...(hasIncomingTerms ? incomingTerms : {})
-                }
+                })
             };
         }
     }
@@ -1221,6 +1645,247 @@ async function extractProposalDomSupplementalData(tabId, href = '') {
                     return Number.isFinite(parsed) ? parsed : null;
                 };
 
+                const parseMoneyAmount = (value) => {
+                    const normalized = normalizeInlineText(value);
+                    if (!normalized) {
+                        return null;
+                    }
+
+                    const match = normalized.match(/-?\d[\d,]*(?:\.\d+)?/);
+                    if (!match) {
+                        return null;
+                    }
+
+                    const parsed = Number.parseFloat(match[0].replace(/,/g, ''));
+                    return Number.isFinite(parsed) ? parsed : null;
+                };
+
+                const normalizeResolvedUrl = (href) => {
+                    const normalizedHref = normalizeInlineText(href);
+                    if (!normalizedHref) {
+                        return null;
+                    }
+
+                    try {
+                        return new URL(normalizedHref, window.location.href).href;
+                    } catch (error) {
+                        return normalizedHref;
+                    }
+                };
+
+                const extractTermsBlockValue = (block) => {
+                    if (!block) {
+                        return null;
+                    }
+
+                    const candidates = Array.from(
+                        block.querySelectorAll('.text-body, .text-body-sm, p.rate')
+                    )
+                        .map((node) => normalizeInlineText(node.textContent))
+                        .filter(Boolean);
+                    if (candidates.length > 0) {
+                        return candidates[candidates.length - 1];
+                    }
+
+                    const clonedBlock = block.cloneNode(true);
+                    clonedBlock.querySelector('strong')?.remove();
+                    return normalizeInlineText(clonedBlock.textContent || '');
+                };
+
+                const extractShortestMatchingText = (root, pattern) => {
+                    if (!root) {
+                        return null;
+                    }
+
+                    const uniqueMatches = Array.from(root.querySelectorAll('*'))
+                        .map((node) => normalizeInlineText(node.textContent))
+                        .filter((text, index, allTexts) => (
+                            !!text &&
+                            pattern.test(text) &&
+                            allTexts.indexOf(text) === index
+                        ))
+                        .sort((left, right) => left.length - right.length);
+
+                    return uniqueMatches[0] || null;
+                };
+
+                const selectBestScoredCandidate = (candidates = []) => candidates.reduce((best, candidate) => {
+                    if (!candidate) {
+                        return best;
+                    }
+
+                    if (!best || Number(candidate.score) > Number(best.score)) {
+                        return candidate;
+                    }
+
+                    return best;
+                }, null);
+
+                const parseProposalPricingTermsSection = (pricingSection) => {
+                    if (!pricingSection) {
+                        return null;
+                    }
+
+                    const extractedTerms = {};
+                    let inferredPricingType = null;
+                    let score = 0;
+                    const termBlocks = Array.from(pricingSection.children)
+                        .filter((node) => node?.nodeType === 1 && node.tagName !== 'HR');
+
+                    for (const block of termBlocks) {
+                        const label = normalizeInlineText(block.querySelector('strong')?.textContent || '');
+                        const valueText = extractTermsBlockValue(block);
+                        if (!label || !valueText) {
+                            continue;
+                        }
+
+                        switch (label.toLowerCase()) {
+                            case 'hourly rate':
+                                {
+                                    inferredPricingType = 'hourly';
+                                    const proposedRate = parseMoneyAmount(valueText);
+                                    if (proposedRate !== null) {
+                                        extractedTerms.proposedRate = proposedRate;
+                                    }
+                                    extractedTerms.proposedRateDisplay = valueText;
+                                    score += 4;
+                                    if (/\/\s*hr\b/i.test(valueText)) {
+                                        score += 2;
+                                    }
+                                }
+                                break;
+                            case 'total price of project':
+                                {
+                                    inferredPricingType = 'fixed-price';
+                                    const proposedTotalPrice = parseMoneyAmount(valueText);
+                                    if (proposedTotalPrice !== null) {
+                                        extractedTerms.proposedTotalPrice = proposedTotalPrice;
+                                    }
+                                    extractedTerms.proposedTotalPriceDisplay = valueText;
+                                    score += 4;
+                                }
+                                break;
+                            case 'how do you want to be paid?':
+                                extractedTerms.paymentMethod = valueText;
+                                score += 1;
+                                if (/by project/i.test(valueText)) {
+                                    inferredPricingType = inferredPricingType || 'fixed-price';
+                                    score += 1;
+                                }
+                                break;
+                            case 'you\'ll receive':
+                                {
+                                    const estimatedReceiveAmount = parseMoneyAmount(valueText);
+                                    if (estimatedReceiveAmount !== null) {
+                                        extractedTerms.estimatedReceiveAmount = estimatedReceiveAmount;
+                                    }
+                                    extractedTerms.estimatedReceiveDisplay = valueText;
+                                    score += 1;
+                                    if (/\/\s*hr\b/i.test(valueText)) {
+                                        score += 1;
+                                    }
+                                }
+                                break;
+                            default:
+                                break;
+                        }
+                    }
+
+                    const dataTestValue = normalizeInlineText(pricingSection.getAttribute('data-test') || '');
+                    if (!inferredPricingType) {
+                        if (/terms-review-hourly/i.test(dataTestValue || '')) {
+                            inferredPricingType = 'hourly';
+                        } else if (/terms-review-fixed-price/i.test(dataTestValue || '')) {
+                            inferredPricingType = 'fixed-price';
+                        }
+                    } else if (
+                        (inferredPricingType === 'hourly' && /terms-review-hourly/i.test(dataTestValue || '')) ||
+                        (inferredPricingType === 'fixed-price' && /terms-review-fixed-price/i.test(dataTestValue || ''))
+                    ) {
+                        score += 1;
+                    }
+
+                    if (inferredPricingType) {
+                        extractedTerms.pricingType = inferredPricingType;
+                    }
+
+                    return Object.keys(extractedTerms).length > 0
+                        ? { terms: extractedTerms, score }
+                        : null;
+                };
+
+                const extractProposalTermsFromDom = () => {
+                    const termsSections = Array.from(document.querySelectorAll('[data-test="terms-review"]'));
+                    if (!termsSections.length) {
+                        return null;
+                    }
+
+                    const bestTermsCandidate = selectBestScoredCandidate(
+                        termsSections.map((termsSection) => {
+                            const terms = {};
+                            let score = 0;
+                            const profileLink = termsSection.querySelector('.specialized-profile-info a');
+                            if (profileLink) {
+                                const profileName = normalizeInlineText(profileLink.textContent || '');
+                                const profileUrl = normalizeResolvedUrl(profileLink.getAttribute('href') || '');
+                                if (profileName) {
+                                    terms.profileName = profileName;
+                                    score += 1;
+                                }
+                                if (profileUrl) {
+                                    terms.profileUrl = profileUrl;
+                                    score += 1;
+                                }
+                            }
+
+                            const clientBudgetText = extractShortestMatchingText(
+                                termsSection,
+                                /^Client's budget:/i
+                            );
+                            const clientBudgetDisplay = normalizeInlineText(
+                                (clientBudgetText || '').replace(/^Client's budget:\s*/i, '')
+                            );
+                            const clientBudget = parseMoneyAmount(clientBudgetDisplay);
+                            if (clientBudget !== null) {
+                                terms.clientBudget = clientBudget;
+                                score += 1;
+                            }
+                            if (clientBudgetDisplay) {
+                                terms.clientBudgetDisplay = clientBudgetDisplay;
+                                score += 1;
+                            }
+
+                            const bestPricingCandidate = selectBestScoredCandidate(
+                                Array.from(
+                                    termsSection.querySelectorAll(
+                                        '[data-test="terms-review-hourly"], [data-test="terms-review-fixed-price"]'
+                                    )
+                                ).map((pricingSection) => parseProposalPricingTermsSection(pricingSection))
+                            );
+                            if (bestPricingCandidate?.terms) {
+                                Object.assign(terms, bestPricingCandidate.terms);
+                                score += bestPricingCandidate.score;
+                            }
+
+                            const rateIncrease = normalizeInlineText(
+                                termsSection.querySelector('.sri-review p.rate')?.textContent ||
+                                termsSection.querySelector('.sri-review .rate')?.textContent ||
+                                ''
+                            );
+                            if (rateIncrease) {
+                                terms.rateIncrease = rateIncrease;
+                                score += 1;
+                            }
+
+                            return Object.keys(terms).length > 0
+                                ? { terms, score }
+                                : null;
+                        })
+                    );
+
+                    return bestTermsCandidate?.terms || null;
+                };
+
                 const readDomSupplement = () => {
                     const data = {};
                     const proposal = {};
@@ -1285,6 +1950,11 @@ async function extractProposalDomSupplementalData(tabId, href = '') {
                         }
                     }
 
+                    const proposalTerms = extractProposalTermsFromDom();
+                    if (proposalTerms) {
+                        Object.assign(terms, proposalTerms);
+                    }
+
                     const boostSection = document.querySelector('.boost-information-section');
                     if (boostSection) {
                         const connectsText = normalizeInlineText(
@@ -1309,10 +1979,17 @@ async function extractProposalDomSupplementalData(tabId, href = '') {
                     return Object.keys(data).length > 0 ? data : null;
                 };
 
-                const hasData = (payload) => !!(
-                    payload?.proposal?.coverLetter ||
-                    payload?.proposal?.terms?.connectsSpent !== undefined ||
-                    payload?.proposal?.attachedHighlights?.description ||
+                const getTermsFieldCount = (payload) => {
+                    const termPayload = payload?.proposal?.terms;
+                    return termPayload && typeof termPayload === 'object' && !Array.isArray(termPayload)
+                        ? Object.keys(termPayload).length
+                        : 0;
+                };
+
+                const hasData = (payload) => (
+                    !!payload?.proposal?.coverLetter ||
+                    getTermsFieldCount(payload) > 0 ||
+                    !!payload?.proposal?.attachedHighlights?.description ||
                     (
                         Array.isArray(payload?.proposal?.attachedHighlights?.items) &&
                         payload.proposal.attachedHighlights.items.length > 0
@@ -1349,19 +2026,25 @@ async function extractProposalDomSupplementalData(tabId, href = '') {
             ? result.proposal.coverLetter.length
             : 0;
         const connectsSpent = result?.proposal?.terms?.connectsSpent;
+        const termsFieldCount = result?.proposal?.terms &&
+            typeof result.proposal.terms === 'object' &&
+            !Array.isArray(result.proposal.terms)
+            ? Object.keys(result.proposal.terms).length
+            : 0;
         const attachedHighlightsCount = Array.isArray(result?.proposal?.attachedHighlights?.items)
             ? result.proposal.attachedHighlights.items.length
             : 0;
         const hasData = !!(
             coverLetterLength > 0 ||
-            connectsSpent !== undefined ||
+            termsFieldCount > 0 ||
             attachedHighlightsCount > 0 ||
             result?.proposal?.attachedHighlights?.description
         );
         const summaryMessage = (
             `${DEBUGGER_LOG_PREFIX} DOM supplement ${hasData ? 'captured' : 'empty'} ` +
             `href=${href || 'unknown'} coverLetter=${coverLetterLength} ` +
-            `attachedHighlights=${attachedHighlightsCount} connectsSpent=${connectsSpent ?? 'none'}`
+            `attachedHighlights=${attachedHighlightsCount} termsFields=${termsFieldCount} ` +
+            `connectsSpent=${connectsSpent ?? 'none'}`
         );
 
         console.log(summaryMessage);
@@ -1404,6 +2087,23 @@ function ensureDebuggerListeners() {
             }
             debuggerSessions.delete(source.tabId);
             console.log(`${DEBUGGER_LOG_PREFIX} detached from tab ${source.tabId} (${reason}).`);
+            if (existingSession.captureMode === 'find-work') {
+                getFindWorkTrackingSession()
+                    .then((trackingSession) => {
+                        if (!trackingSession?.active || Number(trackingSession.tabId) !== Number(source.tabId)) {
+                            return null;
+                        }
+                        return stopFindWorkTrackingSession({
+                            session: trackingSession,
+                            status: 'stopped',
+                            action: `Find Work tracking detached (${reason}).`,
+                            detachDebugger: false
+                        });
+                    })
+                    .catch((error) => {
+                        console.warn('Failed to clear Find Work tracking session after debugger detach:', error);
+                    });
+            }
         }
     });
 
@@ -1565,6 +2265,53 @@ async function handleDebuggerEvent(source, method, params) {
             return;
         }
 
+        if (session.captureMode === 'find-work') {
+            const senderTab = {
+                id: tabId,
+                url: String(session.findWorkPageUrl || ''),
+                title: String(session.findWorkPageTitle || '')
+            };
+            const eventPayload = {
+                isTargetOperation: tracked.alias === FIND_WORK_GRAPHQL_ALIAS,
+                matchReason: tracked.alias === FIND_WORK_GRAPHQL_ALIAS ? 'url-alias' : '',
+                transport: 'debugger',
+                path: shortPathFromUrl(tracked.url),
+                url: tracked.url,
+                method: tracked.method,
+                status: Number(tracked?.responseMeta?.status) || 0,
+                ok: Number(tracked?.responseMeta?.status) >= 200 && Number(tracked?.responseMeta?.status) < 300,
+                graphqlAlias: tracked.alias || '',
+                pageUrl: senderTab.url,
+                pageTitle: senderTab.title,
+                requestStartedAtMs: Number(tracked.requestStartedAtMs) || Date.now(),
+                capturedAtMs: Date.now(),
+                responseTextLength: responseText.length,
+                responseText
+            };
+
+            const result = await handleFindWorkCaptureEvent(eventPayload, senderTab);
+            if (result?.ignored) {
+                session.stats.nonTargetResponsesIgnored += 1;
+                if (result.reason === 'parse-failed' || result.reason === 'non-target') {
+                    session.stats.parseFailed += 1;
+                }
+                return;
+            }
+
+            session.stats.findWorkResponsesCaptured += 1;
+            if (tracked.alias !== FIND_WORK_GRAPHQL_ALIAS) {
+                session.stats.findWorkRecoveredByPayload += 1;
+            }
+            session.stats.findWorkUpsertOps += 1;
+            session.stats.findWorkUpsertedEntries += Number(result?.upsertedCount) || 0;
+            await logDebuggerToTab(
+                tabId,
+                `${FIND_WORK_LOG_PREFIX} debugger response alias=${tracked.alias || 'none'} ` +
+                `upserted=${Number(result?.upsertedCount) || 0} total=${Number(result?.totalSaved) || 0}`
+            );
+            return;
+        }
+
         if (!tracked.likelyProposalList) {
             session.stats.nonTargetResponsesIgnored += 1;
             return;
@@ -1610,7 +2357,9 @@ async function handleDebuggerEvent(source, method, params) {
 async function startDebuggerCaptureForTab(tabId, options = {}) {
     ensureDebuggerListeners();
     const scrapeMode = options?.scrapeMode === 'all' ? 'all' : 'successful';
-    const captureMode = options?.captureMode === 'details' ? 'details' : 'list';
+    const captureMode = options?.captureMode === 'details'
+        ? 'details'
+        : (options?.captureMode === 'find-work' ? 'find-work' : 'list');
 
     if (debuggerSessions.has(tabId)) {
         const existingSession = debuggerSessions.get(tabId);
@@ -1641,12 +2390,16 @@ async function startDebuggerCaptureForTab(tabId, options = {}) {
                 likelyListRequests: 0,
                 likelyDetailsRequests: 0,
                 responsesCaptured: 0,
+                findWorkResponsesCaptured: 0,
+                findWorkRecoveredByPayload: 0,
                 detailsResponsesCaptured: 0,
                 nonTargetResponsesIgnored: 0,
                 parseFailed: 0,
                 linksRecovered: 0,
                 upsertOps: 0,
                 upsertedEntries: 0,
+                findWorkUpsertOps: 0,
+                findWorkUpsertedEntries: 0,
                 detailsUpsertOps: 0,
                 detailsUpsertedEntries: 0
             }
@@ -1688,8 +2441,11 @@ async function stopDebuggerCaptureForTab(tabId) {
             `likelyList=${stats.likelyListRequests} likelyDetails=${stats.likelyDetailsRequests} ` +
             `ignored=${stats.nonTargetResponsesIgnored} ` +
             `listResponses=${stats.responsesCaptured} links=${stats.linksRecovered} ` +
+            `findWorkResponses=${stats.findWorkResponsesCaptured || 0} ` +
+            `findWorkRecovered=${stats.findWorkRecoveredByPayload || 0} ` +
             `detailResponses=${stats.detailsResponsesCaptured} ` +
             `parseFailed=${stats.parseFailed} listUpserts=${stats.upsertOps}/${stats.upsertedEntries} ` +
+            `findWorkUpserts=${stats.findWorkUpsertOps || 0}/${stats.findWorkUpsertedEntries || 0} ` +
             `detailUpserts=${stats.detailsUpsertOps}/${stats.detailsUpsertedEntries}`
         );
         console.log(summary);
@@ -1708,6 +2464,34 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
             console.error('Failed to start proposal scraping:', error);
         });
         return;
+    }
+
+    if (request.action === 'startFindWorkJobListTracking') {
+        startFindWorkJobListTrackingFlow()
+            .then(() => {
+                sendResponse({ ok: true });
+            })
+            .catch((error) => {
+                console.error('Failed to start Find Work tracking:', error);
+                sendResponse({ ok: false, error: error?.message || 'Unknown Find Work tracking failure' });
+            });
+        return true;
+    }
+
+    if (request.action === 'stopFindWorkJobListTracking') {
+        stopFindWorkTrackingSession({
+            status: 'stopped',
+            action: 'Stopped from the side panel.',
+            forceRunStatus: true
+        })
+            .then(() => {
+                sendResponse({ ok: true });
+            })
+            .catch((error) => {
+                console.error('Failed to stop Find Work tracking:', error);
+                sendResponse({ ok: false, error: error?.message || 'Unknown Find Work stop failure' });
+            });
+        return true;
     }
 
     if (request.action === 'startArchivedListScraping') {
@@ -1744,6 +2528,67 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
             });
         return true;
     }
+
+    if (request.action === 'upworkFindWorkCaptureEvent') {
+        handleFindWorkCaptureEvent(request.payload, _sender?.tab)
+            .then((result) => {
+                sendResponse({ ok: true, result });
+            })
+            .catch((error) => {
+                console.warn('Failed to handle Find Work capture event:', error);
+                sendResponse({ ok: false, error: error?.message || 'Unknown Find Work capture failure' });
+            });
+        return true;
+    }
+});
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== 'local' || !changes[UPWORK_RUN_CONTROL_STORAGE_KEY]) {
+        return;
+    }
+
+    const nextControl = normalizeUpworkRunControl(changes[UPWORK_RUN_CONTROL_STORAGE_KEY].newValue);
+    if (nextControl.stopRequested !== true) {
+        return;
+    }
+
+    getFindWorkTrackingSession()
+        .then((session) => {
+            if (!session?.active) {
+                return null;
+            }
+            return stopFindWorkTrackingSession({
+                session,
+                status: 'stopped',
+                action: 'Stopped from the side panel.'
+            });
+        })
+        .catch((error) => {
+            console.warn('Failed to stop Find Work tracking from run control change:', error);
+        });
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    maybeRefreshFindWorkTrackingForTab(tabId, changeInfo, tab).catch((error) => {
+        console.warn('Failed to refresh Find Work tracking after tab update:', error);
+    });
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+    getFindWorkTrackingSession()
+        .then((session) => {
+            if (!session?.active || Number(session.tabId) !== Number(tabId)) {
+                return null;
+            }
+            return stopFindWorkTrackingSession({
+                session,
+                status: 'stopped',
+                action: 'Tracked Find Work tab was closed.'
+            });
+        })
+        .catch((error) => {
+            console.warn('Failed to stop Find Work tracking after tab close:', error);
+        });
 });
 
 function hasCapturedDetailsRaw(entry) {
@@ -1981,6 +2826,8 @@ async function runDebuggerProposalDetailsFlow(tabId, scrapeMode) {
 }
 
 async function startScrapingFlow(scrapeMode = DEFAULT_SCRAPE_MODE) {
+    await stopFindWorkTrackingSession({ updateRunStatus: false });
+
     const [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
     let targetTabId;
@@ -2039,6 +2886,8 @@ async function startScrapingFlow(scrapeMode = DEFAULT_SCRAPE_MODE) {
 }
 
 async function startArchivedListScrapingFlow(scrapeMode = DEFAULT_SCRAPE_MODE) {
+    await stopFindWorkTrackingSession({ updateRunStatus: false });
+
     const [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
     let targetTabId;
@@ -2086,6 +2935,8 @@ async function startArchivedListScrapingFlow(scrapeMode = DEFAULT_SCRAPE_MODE) {
 }
 
 async function startJobPostsFromSavedListScrapingFlow(scrapeMode = DEFAULT_SCRAPE_MODE) {
+    await stopFindWorkTrackingSession({ updateRunStatus: false });
+
     const [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
     let targetTabId;
@@ -2106,6 +2957,8 @@ async function startJobPostsFromSavedListScrapingFlow(scrapeMode = DEFAULT_SCRAP
 }
 
 async function startCurrentJobPostScrapingFlow() {
+    await stopFindWorkTrackingSession({ updateRunStatus: false });
+
     const [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!currentTab?.id) {
         throw new Error('No active tab found for current job post scraping.');
@@ -2121,6 +2974,371 @@ async function startCurrentJobPostScrapingFlow() {
         function: runUpworkScrape,
         args: [{ scrapeCurrentJobPost: true }]
     });
+}
+
+function createFindWorkRunStatusUpdate(overrides = {}) {
+    const update = overrides && typeof overrides === 'object' ? { ...overrides } : {};
+    return {
+        runKind: 'find-work-job-list',
+        statusTitle: 'Tracking Find Work Jobs',
+        modeBadgeText: 'Find Work: Best Matches',
+        listProgressLabel: 'Run Scope',
+        listProgressText: 'Best matches tab',
+        listCurrent: '1',
+        listTotal: '1',
+        itemCurrent: 0,
+        itemTotal: 0,
+        totalSaved: 0,
+        etaMs: null,
+        etaText: 'waiting for activity',
+        errorTotal: 0,
+        errorSummary: '',
+        recentErrors: [],
+        isPaused: false,
+        stopRequested: false,
+        pauseSupported: false,
+        stopSupported: true,
+        inProgress: true,
+        status: 'running',
+        ...update
+    };
+}
+
+async function setFindWorkTrackingSession(nextSession) {
+    if (!nextSession || typeof nextSession !== 'object') {
+        await chrome.storage.local.remove(FIND_WORK_TRACKING_SESSION_STORAGE_KEY);
+        return null;
+    }
+
+    await chrome.storage.local.set({
+        [FIND_WORK_TRACKING_SESSION_STORAGE_KEY]: nextSession
+    });
+    return nextSession;
+}
+
+async function ensureFindWorkTrackingHelpers(tabId) {
+    try {
+        await chrome.scripting.executeScript({
+            target: { tabId },
+            world: 'MAIN',
+            files: FIND_WORK_MAIN_WORLD_HELPER_FILES
+        });
+    } catch (error) {
+        console.warn('Failed to inject Find Work main-world helpers:', error);
+        throw error;
+    }
+
+    await chrome.scripting.executeScript({
+        target: { tabId },
+        files: FIND_WORK_INJECTED_HELPER_FILES
+    });
+}
+
+async function stopFindWorkTrackingSession(options = {}) {
+    const session = options?.session || await getFindWorkTrackingSession();
+    const hadSession = !!session;
+    const tabId = Number(session?.tabId);
+    if (hadSession) {
+        console.log(
+            `${FIND_WORK_LOG_PREFIX} stopping session tab=${session?.tabId ?? 'unknown'} ` +
+            `status=${options?.status || 'stopped'} totalSaved=${session?.totalSaved ?? 0}`
+        );
+        await setFindWorkTrackingSession(null);
+    }
+
+    if (
+        options?.detachDebugger !== false &&
+        Number.isFinite(tabId) &&
+        debuggerSessions.get(tabId)?.captureMode === 'find-work'
+    ) {
+        await stopDebuggerCaptureForTab(tabId);
+    }
+
+    if (options?.resetRunControl !== false) {
+        await setUpworkRunControlState({ paused: false, stopRequested: false });
+    }
+
+    if (options?.updateRunStatus === false) {
+        return hadSession;
+    }
+
+    if (!hadSession && options?.forceRunStatus !== true) {
+        return false;
+    }
+
+    const totalSaved = Number.isFinite(Number(options?.totalSaved))
+        ? Number(options.totalSaved)
+        : (Number.isFinite(Number(session?.totalSaved)) ? Number(session.totalSaved) : 0);
+    const startedAt = String(options?.startedAt || session?.startedAt || '').trim() || null;
+    const action = String(options?.action || '').trim() || 'Find Work tracking stopped.';
+    const status = String(options?.status || '').trim() || 'stopped';
+
+    await queueUpworkRunStatusUpdate(createFindWorkRunStatusUpdate({
+        action,
+        totalSaved,
+        itemCurrent: totalSaved,
+        itemTotal: totalSaved,
+        etaMs: 0,
+        etaText: 'done',
+        inProgress: false,
+        status,
+        stopSupported: false,
+        startedAt
+    }), { reset: true });
+
+    return hadSession;
+}
+
+async function handleFindWorkCaptureEvent(eventPayload, senderTab) {
+    const session = await getFindWorkTrackingSession();
+    if (!session?.active) {
+        return { ignored: true, reason: 'no-session' };
+    }
+
+    const senderTabId = Number(senderTab?.id);
+    if (!Number.isFinite(senderTabId) || senderTabId !== Number(session.tabId)) {
+        return { ignored: true, reason: 'wrong-tab' };
+    }
+
+    const pageUrl = String(eventPayload?.pageUrl || senderTab?.url || session.pageUrl || '').trim();
+    if (!isFindWorkPageUrl(pageUrl)) {
+        console.warn(`${FIND_WORK_LOG_PREFIX} tracked tab left Find Work page: ${pageUrl || 'unknown-url'}`);
+        await stopFindWorkTrackingSession({
+            session,
+            status: 'invalid-target',
+            action: 'Tracked tab left the Find Work page.'
+        });
+        return { ignored: true, reason: 'invalid-page' };
+    }
+
+        const payloadAlias = String(eventPayload?.graphqlAlias || aliasFromGraphqlUrl(eventPayload?.url) || '').trim();
+    if (
+        String(session?.transport || '').trim() === 'debugger' &&
+        String(eventPayload?.transport || '').trim() !== 'debugger'
+    ) {
+        return { ignored: true, reason: 'non-debugger-transport' };
+    }
+
+    const feedPayload = extractFindWorkFeedPayload(String(eventPayload?.responseText || ''));
+    if (!feedPayload) {
+        return {
+            ignored: true,
+            reason: eventPayload?.isTargetOperation === true ? 'parse-failed' : 'non-target'
+        };
+    }
+
+    const recoveredViaPayload = !(
+        eventPayload?.isTargetOperation === true ||
+        payloadAlias === FIND_WORK_GRAPHQL_ALIAS ||
+        String(eventPayload?.url || '').includes(FIND_WORK_GRAPHQL_ALIAS)
+    );
+    if (recoveredViaPayload) {
+        console.log(
+            `${FIND_WORK_LOG_PREFIX} recovered find-work payload from alias=${payloadAlias || 'none'} ` +
+            `status=${eventPayload?.status || '?'} via response parsing.`
+        );
+    }
+
+    const entries = [];
+    const seenUids = new Set();
+    for (let index = 0; index < feedPayload.results.length; index += 1) {
+        const entry = buildFindWorkJobEntryFromNode(
+            feedPayload.results[index],
+            eventPayload,
+            senderTab,
+            feedPayload.responseContext,
+            index
+        );
+        if (!entry || seenUids.has(entry.uid)) {
+            continue;
+        }
+        seenUids.add(entry.uid);
+        entries.push(entry);
+    }
+
+    const upsertResult = entries.length > 0
+        ? await queueFindWorkJobListUpsert(entries, FIND_WORK_SOURCE_LABEL)
+        : {
+            upsertedCount: 0,
+            insertedCount: 0,
+            updatedCount: 0,
+            totalSize: Number.isFinite(Number(session.totalSaved)) ? Number(session.totalSaved) : 0
+        };
+
+    const nowIso = new Date().toISOString();
+    const totalSaved = Number.isFinite(Number(upsertResult?.totalSize))
+        ? Number(upsertResult.totalSize)
+        : (Number.isFinite(Number(session.totalSaved)) ? Number(session.totalSaved) : 0);
+    const responsesCaptured = (Number(session.responsesCaptured) || 0) + 1;
+    const nextSession = {
+        ...session,
+        active: true,
+        pageUrl,
+        pageTitle: String(eventPayload?.pageTitle || senderTab?.title || session.pageTitle || '').trim(),
+        updatedAt: nowIso,
+        responsesCaptured,
+        jobsObserved: (Number(session.jobsObserved) || 0) + feedPayload.results.length,
+        totalSaved,
+        lastResponseAt: nowIso,
+        lastEventSummary: {
+            alias: payloadAlias || FIND_WORK_GRAPHQL_ALIAS,
+            resultsCount: feedPayload.results.length,
+            savedCount: totalSaved,
+            upsertedCount: Number(upsertResult?.upsertedCount) || 0,
+            insertedCount: Number(upsertResult?.insertedCount) || 0,
+            updatedCount: Number(upsertResult?.updatedCount) || 0,
+            responseStatus: Number(eventPayload?.status) || 0,
+            pageUrl
+        }
+    };
+    await setFindWorkTrackingSession(nextSession);
+
+    const responseSummary = (
+        `Captured response ${responsesCaptured} ` +
+        `(${feedPayload.results.length} result${feedPayload.results.length === 1 ? '' : 's'}, ` +
+        `${Number(upsertResult?.upsertedCount) || 0} upserted, ${totalSaved} saved total). ` +
+        'Waiting for more Find Work requests...'
+    );
+    console.log(
+        `${FIND_WORK_LOG_PREFIX} tab=${senderTabId} response#${responsesCaptured} ` +
+        `results=${feedPayload.results.length} upserted=${Number(upsertResult?.upsertedCount) || 0} ` +
+        `inserted=${Number(upsertResult?.insertedCount) || 0} updated=${Number(upsertResult?.updatedCount) || 0} ` +
+        `savedTotal=${totalSaved}`
+    );
+    await logDebuggerToTab(
+        senderTabId,
+        `${FIND_WORK_LOG_PREFIX} response#${responsesCaptured} results=${feedPayload.results.length} upserted=${Number(upsertResult?.upsertedCount) || 0} total=${totalSaved}`
+    );
+    await queueUpworkRunStatusUpdate(createFindWorkRunStatusUpdate({
+        action: responseSummary,
+        itemCurrent: totalSaved,
+        itemTotal: totalSaved,
+        totalSaved,
+        etaMs: null,
+        etaText: 'waiting for activity',
+        startedAt: nextSession.startedAt
+    }));
+
+    return {
+        ignored: false,
+        upsertedCount: Number(upsertResult?.upsertedCount) || 0,
+        totalSaved
+    };
+}
+
+async function maybeRefreshFindWorkTrackingForTab(tabId, changeInfo, tab) {
+    const session = await getFindWorkTrackingSession();
+    if (!session?.active || Number(session.tabId) !== Number(tabId)) {
+        return;
+    }
+
+    if (changeInfo?.status !== 'complete') {
+        return;
+    }
+
+    const tabUrl = String(tab?.url || session.pageUrl || '').trim();
+    if (!isFindWorkPageUrl(tabUrl)) {
+        console.warn(`${FIND_WORK_LOG_PREFIX} stopping after tab navigation to ${tabUrl || 'unknown-url'}`);
+        await stopFindWorkTrackingSession({
+            session,
+            status: 'invalid-target',
+            action: 'Tracked tab left the Find Work page.'
+        });
+        return;
+    }
+
+    const debuggerSession = debuggerSessions.get(tabId);
+    if (debuggerSession && debuggerSession.captureMode === 'find-work') {
+        debuggerSession.findWorkPageUrl = tabUrl;
+        debuggerSession.findWorkPageTitle = String(tab?.title || session.pageTitle || '').trim();
+    }
+    console.log(`${FIND_WORK_LOG_PREFIX} refreshed tracking context for tab=${tabId} after navigation/load.`);
+
+    const nextSession = {
+        ...session,
+        pageUrl: tabUrl,
+        pageTitle: String(tab?.title || session.pageTitle || '').trim(),
+        updatedAt: new Date().toISOString()
+    };
+    await setFindWorkTrackingSession(nextSession);
+
+    await queueUpworkRunStatusUpdate(createFindWorkRunStatusUpdate({
+        action: 'Tracking Find Work requests. Click filters or pagination to capture jobs.',
+        itemCurrent: Number(nextSession.totalSaved) || 0,
+        itemTotal: Number(nextSession.totalSaved) || 0,
+        totalSaved: Number(nextSession.totalSaved) || 0,
+        etaMs: null,
+        etaText: 'waiting for activity',
+        startedAt: nextSession.startedAt
+    }));
+}
+
+async function startFindWorkJobListTrackingFlow() {
+    await stopFindWorkTrackingSession({ updateRunStatus: false });
+
+    const [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!currentTab?.id) {
+        throw new Error('No active tab found for Find Work tracking.');
+    }
+    if (!isFindWorkPageUrl(currentTab.url)) {
+        throw new Error('Find Work tracking requires the active tab to already be on an Upwork Find Work page.');
+    }
+
+    await waitForTabReady(currentTab.id, FIND_WORK_URL);
+    const debuggerAttached = await startDebuggerCaptureForTab(currentTab.id, {
+        captureMode: 'find-work'
+    });
+    if (!debuggerAttached) {
+        throw new Error(
+            'Find Work tracking requires debugger attachment. Close DevTools for this tab (if open) and retry.'
+        );
+    }
+    const debuggerSession = debuggerSessions.get(currentTab.id);
+    if (debuggerSession) {
+        debuggerSession.findWorkPageUrl = String(currentTab.url || '').trim();
+        debuggerSession.findWorkPageTitle = String(currentTab.title || '').trim();
+    }
+    console.log(`${FIND_WORK_LOG_PREFIX} debugger armed for tab=${currentTab.id} url=${currentTab.url}`);
+    await logDebuggerToTab(
+        currentTab.id,
+        `${FIND_WORK_LOG_PREFIX} tracking armed for best matches. Click filters or pagination to capture requests.`
+    );
+
+    const storageData = await chrome.storage.local.get(FIND_WORK_JOB_LIST_STORAGE_KEY);
+    const existingItems = Array.isArray(storageData[FIND_WORK_JOB_LIST_STORAGE_KEY])
+        ? storageData[FIND_WORK_JOB_LIST_STORAGE_KEY]
+        : [];
+    const startedAtIso = new Date().toISOString();
+    const session = {
+        active: true,
+        tabId: currentTab.id,
+        transport: 'debugger',
+        sourceTab: FIND_WORK_SOURCE_TAB,
+        pageUrl: String(currentTab.url || '').trim(),
+        pageTitle: String(currentTab.title || '').trim(),
+        startedAt: startedAtIso,
+        updatedAt: startedAtIso,
+        responsesCaptured: 0,
+        jobsObserved: 0,
+        totalSaved: existingItems.length,
+        lastResponseAt: null,
+        lastEventSummary: null
+    };
+
+    await setUpworkRunControlState({ paused: false, stopRequested: false });
+    await setFindWorkTrackingSession(session);
+    console.log(
+        `${FIND_WORK_LOG_PREFIX} session started tab=${currentTab.id} existingSaved=${existingItems.length}`
+    );
+    await queueUpworkRunStatusUpdate(createFindWorkRunStatusUpdate({
+        action: 'Tracking Find Work requests. Click filters or pagination to capture jobs.',
+        itemCurrent: existingItems.length,
+        itemTotal: existingItems.length,
+        totalSaved: existingItems.length,
+        etaMs: null,
+        etaText: 'waiting for activity',
+        startedAt: startedAtIso
+    }), { reset: true });
 }
 
 async function ensureInjectedScraperHelpers(tabId, options = {}) {

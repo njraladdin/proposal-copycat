@@ -63,6 +63,10 @@ When making a change, start in the file that owns the behavior instead of patchi
   - proposal details parsing helpers
 - [sites/upwork/injected/job-post-page.js](/c:/Users/Mega-PC/Desktop/projects/proposal-copycat/sites/upwork/injected/job-post-page.js)
   - current job page parsing
+- [sites/upwork/injected/find-work-network-monitor.js](/c:/Users/Mega-PC/Desktop/projects/proposal-copycat/sites/upwork/injected/find-work-network-monitor.js)
+  - Find Work best-matches request interception in the page's main world
+- [sites/upwork/injected/find-work-capture-bridge.js](/c:/Users/Mega-PC/Desktop/projects/proposal-copycat/sites/upwork/injected/find-work-capture-bridge.js)
+  - forwards intercepted Find Work payloads to the background controller
 - [sites/upwork/injected/proposal-scrape-run-state.js](/c:/Users/Mega-PC/Desktop/projects/proposal-copycat/sites/upwork/injected/proposal-scrape-run-state.js)
   - page-context progress persistence
 
@@ -170,6 +174,16 @@ Start with:
 
 - `sites/upwork/background/upwork-scrape-runner.js`
 - `sites/upwork/injected/job-post-page.js`
+
+### Change Find Work capture
+
+Start with:
+
+- `sites/upwork/background/controller.js`
+- `sites/upwork/injected/find-work-network-monitor.js`
+- `sites/upwork/injected/find-work-capture-bridge.js`
+- `sites/upwork/panel.html`
+- `sites/upwork/panel.js`
 
 ### Change storage keys
 

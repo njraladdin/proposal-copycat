@@ -91,6 +91,7 @@
 
 <section id="jobPostsPanel" class="site-tab-panel">
   <div id="jobPageWarning" class="info-warning">Open a page like upwork.com/jobs/... to use "Scrape Active Job Page".</div>
+  <div id="findWorkPageWarning" class="info-warning">Open a page like upwork.com/nx/find-work to use "Start Find Work Tracking".</div>
 
   <div class="controls">
     <div class="control-left">
@@ -120,6 +121,32 @@
       </div>
     </div>
     <textarea id="activeJobJsonOutput" class="raw-json" readonly></textarea>
+  </div>
+
+  <div class="data-preview" style="margin-top: 12px;">
+    <div class="data-preview-header">
+      <div class="data-preview-title">Find Work Best Matches (<span id="findWorkJobListCount">0</span>)</div>
+    </div>
+    <p class="subtle-note">Lightweight job list captured from the Find Work best matches feed via request interception.</p>
+    <div class="controls" style="margin-top: 12px; margin-bottom: 12px;">
+      <div class="control-left">
+        <button id="startFindWorkTracking">Start Find Work Tracking</button>
+        <button id="clearFindWorkJobList" class="clear-btn">Clear Find Work Data</button>
+      </div>
+      <div class="control-right">
+        <span>Input</span>
+        <span>Active Find Work tab only</span>
+      </div>
+    </div>
+    <div class="raw-json-toolbar">
+      <span>Exact stored payload</span>
+      <div class="toolbar-actions">
+        <button id="loadFindWorkJobListJson" class="copy-json-btn">Refresh JSON</button>
+        <button id="downloadFindWorkJobListJson" class="copy-json-btn">Download JSON</button>
+        <button id="copyFindWorkJobListJson" class="copy-json-btn">Copy JSON</button>
+      </div>
+    </div>
+    <textarea id="findWorkJobListJsonOutput" class="raw-json" readonly></textarea>
   </div>
 
   <div class="data-preview" style="margin-top: 12px;">
