@@ -1,0 +1,746 @@
+[
+  {
+    "jobPostPage": {
+      "data": {
+        "clientInfo": {
+          "companyHistory": {
+            "memberSince": "2025-11-17T00:00:00.000Z",
+            "openJobsCount": 6,
+            "totalJobsPosted": 196
+          },
+          "isEnterprise": false,
+          "isPaymentMethodVerified": true,
+          "location": {
+            "city": "Brookfield",
+            "country": "United States",
+            "timezone": "Africa/Algiers (UTC+01:00)"
+          },
+          "stats": {
+            "activeAssignments": 7,
+            "feedbackScore": 5,
+            "totalHires": 183,
+            "totalSpent": 1432.85
+          }
+        },
+        "jobPost": {
+          "budget": {
+            "amount": 5,
+            "currency": "USD",
+            "extendedInfo": {
+              "hourlyBudgetMax": null,
+              "hourlyBudgetMin": null,
+              "hourlyBudgetType": null
+            }
+          },
+          "category": "Scripts & Utilities",
+          "ciphertext": "~022039287109164273245",
+          "clientActivity": {
+            "invitationsSent": 1,
+            "lastBuyerActivity": "2026-04-01T10:54:23.613Z",
+            "numberOfPositionsToHire": 1,
+            "totalApplicants": 12,
+            "totalHired": 1,
+            "totalInvitedToInterview": 0,
+            "unansweredInvites": 0
+          },
+          "description": "We are looking for an experienced automation specialist to help troubleshoot, fix, and optimize existing workflows.\nThis role involves working with:\nN8N workflows (self-hosted & cloud)\nMake.com scenarios (Integromat)\nAPI integrations (REST, Webhooks, OAuth)\nError handling, routing, and execution logs\nData parsing (JSON, XML)\nAutomation debugging and performance optimization\nTasks may include:\nFixing broken automation workflows\nResolving webhook/API connection issues\nDebugging scenario errors and failed executions\nOptimizing automation logic and reducing task usage\nConnecting tools like Google Sheets, Airtable, Slack, CRMs, etc.\nSetting up routers, filters, and conditional logic\nIdeal candidate:\nStrong experience with N8N and/or Make.com\nFast at diagnosing and fixing automation issues\nComfortable with APIs and data structures\nCan deliver quick, reliable fixes\nThis is ongoing work with frequent small tasks.",
+          "duration": {
+            "label": "1 to 3 months",
+            "weeks": 9
+          },
+          "id": "2039287109164273245",
+          "postedOn": "2026-04-01T10:21:49.897Z",
+          "status": 1,
+          "subCategory": "Web, Mobile & Software Dev",
+          "title": "N8N / Make.com Automation Expert Needed for Workflow Fixes, API Integrations & Scenario Debugging",
+          "type": 1,
+          "url": "https://www.upwork.com/jobs/~022039287109164273245"
+        },
+        "viewerProfile": {
+          "monetizedTitle": "Freelancer",
+          "name": "Aladdin Najjar",
+          "photoUrl": "https://www.upwork.com/profile-portraits/c1UgJmW0-Txn6PJ8q0Xhpu2E6-nJCg9P2mlJQepXnTBkfjIk5-UjBdYfi1P6U9stpl",
+          "type": "SOLE_PROPRIETOR"
+        }
+      },
+      "url": "https://www.upwork.com/jobs/~022039287109164273245"
+    },
+    "scrapedAt": "2026-04-01T11:49:58.691Z",
+    "source": "find-work-job-list",
+    "sourceFindWorkCiphertext": "~022039287109164273245",
+    "sourceFindWorkTab": "best-matches",
+    "sourceFindWorkUid": "2039287109164273245",
+    "sourcePageUrl": "https://www.upwork.com/nx/find-work/best-matches"
+  },
+  {
+    "jobPostPage": {
+      "data": {
+        "clientInfo": {
+          "companyHistory": {
+            "openJobsCount": 1
+          },
+          "isEnterprise": false,
+          "isPaymentMethodVerified": false,
+          "location": {
+            "country": "United States",
+            "timezone": "America/Chicago (UTC-05:00)"
+          },
+          "stats": {
+            "totalHires": 0
+          }
+        },
+        "jobPost": {
+          "budget": {
+            "amount": 500,
+            "currency": "USD",
+            "extendedInfo": {
+              "hourlyBudgetMax": null,
+              "hourlyBudgetMin": null,
+              "hourlyBudgetType": null
+            }
+          },
+          "category": "Web Development",
+          "ciphertext": "~022039302158166043758",
+          "clientActivity": {
+            "invitationsSent": 1,
+            "lastBuyerActivity": "2026-04-01T11:24:22.864Z",
+            "numberOfPositionsToHire": 1,
+            "totalApplicants": 12,
+            "totalHired": 0,
+            "totalInvitedToInterview": 0,
+            "unansweredInvites": 1
+          },
+          "description": "We are looking for an expert developer to connect an AI agent with our CRM and gym access control systems using MindStudio, Airtable, Twilio, and Kisi API. The integration must be accomplished within a rapid 48-hour timeline. You will leverage Make.com to facilitate this connection, ensuring seamless operation between our systems. The project has a fixed budget of $500. If you have extensive experience in these platforms and can deliver quickly, we would love to hear from you!",
+          "duration": {
+            "label": "Less than 1 month",
+            "weeks": 3
+          },
+          "id": "2039302158166043758",
+          "postedOn": "2026-04-01T11:21:37.993Z",
+          "status": 1,
+          "subCategory": "Web, Mobile & Software Dev",
+          "title": "Expert Developer Needed for AI Agent Integration with CRM & Access Control",
+          "type": 1,
+          "url": "https://www.upwork.com/jobs/~022039302158166043758"
+        },
+        "viewerProfile": {
+          "monetizedTitle": "Freelancer",
+          "name": "Aladdin Najjar",
+          "photoUrl": "https://www.upwork.com/profile-portraits/c1UgJmW0-Txn6PJ8q0Xhpu2E6-nJCg9P2mlJQepXnTBkfjIk5-UjBdYfi1P6U9stpl",
+          "type": "SOLE_PROPRIETOR"
+        }
+      },
+      "url": "https://www.upwork.com/jobs/~022039302158166043758"
+    },
+    "scrapedAt": "2026-04-01T11:50:00.840Z",
+    "source": "find-work-job-list",
+    "sourceFindWorkCiphertext": "~022039302158166043758",
+    "sourceFindWorkTab": "best-matches",
+    "sourceFindWorkUid": "2039302158166043758",
+    "sourcePageUrl": "https://www.upwork.com/nx/find-work/best-matches"
+  },
+  {
+    "jobPostPage": {
+      "data": {
+        "clientInfo": {
+          "companyHistory": {
+            "memberSince": "2014-04-13T00:00:00.000Z",
+            "openJobsCount": 1,
+            "totalJobsPosted": 59
+          },
+          "isEnterprise": false,
+          "isPaymentMethodVerified": true,
+          "location": {
+            "city": "Dayton",
+            "country": "United States",
+            "timezone": "America/Sao_Paulo (UTC-03:00)"
+          },
+          "stats": {
+            "activeAssignments": 12,
+            "avgHourlyRatePaid": {
+              "amount": 17.395326086956523
+            },
+            "feedbackScore": 4.9,
+            "totalHires": 45,
+            "totalSpent": 21783.81
+          }
+        },
+        "jobPost": {
+          "budget": {
+            "amount": 50,
+            "currency": "USD",
+            "extendedInfo": {
+              "hourlyBudgetMax": null,
+              "hourlyBudgetMin": null,
+              "hourlyBudgetType": null
+            }
+          },
+          "category": "Web Development",
+          "ciphertext": "~022038992198639862226",
+          "clientActivity": {
+            "invitationsSent": 0,
+            "lastBuyerActivity": "2026-03-31T18:10:56.614Z",
+            "numberOfPositionsToHire": 1,
+            "totalApplicants": 19,
+            "totalHired": 1,
+            "totalInvitedToInterview": 3,
+            "unansweredInvites": 0
+          },
+          "description": "I need to look up times and book a call on a hubspot calendar from retell AI, likely using make.com.\n\nIdeally you have done something similar before, please start your response with purple giraffe and your experience doing something similar.",
+          "duration": {
+            "label": "Less than 1 month",
+            "weeks": 3
+          },
+          "id": "2038992198639862226",
+          "postedOn": "2026-03-31T14:49:57.879Z",
+          "status": 1,
+          "subCategory": "Web, Mobile & Software Dev",
+          "title": "Retell Conversation Flow to Make.com to Hubspot connection fix",
+          "type": 1,
+          "url": "https://www.upwork.com/jobs/~022038992198639862226"
+        },
+        "viewerProfile": {
+          "monetizedTitle": "Freelancer",
+          "name": "Aladdin Najjar",
+          "photoUrl": "https://www.upwork.com/profile-portraits/c1UgJmW0-Txn6PJ8q0Xhpu2E6-nJCg9P2mlJQepXnTBkfjIk5-UjBdYfi1P6U9stpl",
+          "type": "SOLE_PROPRIETOR"
+        }
+      },
+      "url": "https://www.upwork.com/jobs/~022038992198639862226"
+    },
+    "scrapedAt": "2026-04-01T11:50:03.400Z",
+    "source": "find-work-job-list",
+    "sourceFindWorkCiphertext": "~022038992198639862226",
+    "sourceFindWorkTab": "best-matches",
+    "sourceFindWorkUid": "2038992198639862226",
+    "sourcePageUrl": "https://www.upwork.com/nx/find-work/best-matches"
+  },
+  {
+    "jobPostPage": {
+      "data": {
+        "clientInfo": {
+          "companyHistory": {
+            "memberSince": "2026-04-01T00:00:00.000Z",
+            "openJobsCount": 1,
+            "totalJobsPosted": 1
+          },
+          "isEnterprise": false,
+          "isPaymentMethodVerified": false,
+          "location": {
+            "country": "Australia",
+            "timezone": "Australia/Adelaide (UTC+10:30)"
+          },
+          "stats": {
+            "activeAssignments": 0,
+            "feedbackScore": 0,
+            "totalHires": 0
+          }
+        },
+        "jobPost": {
+          "budget": {
+            "amount": 0,
+            "currency": "USD",
+            "extendedInfo": {
+              "hourlyBudgetMax": 25,
+              "hourlyBudgetMin": 8,
+              "hourlyBudgetType": "DEFAULT"
+            }
+          },
+          "category": "Data Extraction/ETL",
+          "ciphertext": "~022039192802816284989",
+          "clientActivity": {
+            "invitationsSent": 0,
+            "lastBuyerActivity": "2026-04-01T07:46:13.707Z",
+            "numberOfPositionsToHire": 1,
+            "totalApplicants": 7,
+            "totalHired": 0,
+            "totalInvitedToInterview": 0,
+            "unansweredInvites": 0
+          },
+          "description": "We are seeking a skilled data scraper to extract consumer comments written in English from platforms like Reddit regarding religious and political symbols in professional workspaces (e.g., healthcare, legal, schools). \n\nExample threads:\nHow a ban on religious symbols in Quebec has triggered a constitutional debate across Canada : r/atheism\nQuebecers banned over religious symbols hope court challenge changes secularism laws : r/LawCanada\nIf you believe France is right to ban religious clothing/symbols because it's a secular society, you're a hypocrite to criticise Iran for mandating Hijab. : r/TrueUnpopularOpinion\nThoughts on France banning conspicous religious symbols in public schools? : r/religion\nGovernment offices in EU can ban wearing of religious symbols, court rules : r/europe\n\nThe ideal candidate will have experience in data extraction, particularly from social media platforms. You will be expected to deliver clean, structured data that highlights public sentiment surrounding these topics. If you have a keen eye for detail and a passion for understanding social dynamics, we want to hear from you!",
+          "duration": {
+            "label": "1 to 3 months",
+            "weeks": 9
+          },
+          "id": "2039192802816284989",
+          "postedOn": "2026-04-01T04:07:05.562Z",
+          "screeningQuestions": [
+            "Describe your recent experience with similar projects",
+            "What techniques would you use to clean a data set?"
+          ],
+          "status": 1,
+          "subCategory": "Data Science & Analytics",
+          "title": "Data Scraping: Consumer Comments on Religious/Political Symbols in Professional Workspaces",
+          "type": 2,
+          "url": "https://www.upwork.com/jobs/~022039192802816284989",
+          "workload": "Less than 30 hrs/week"
+        },
+        "viewerProfile": {
+          "monetizedTitle": "Freelancer",
+          "name": "Aladdin Najjar",
+          "photoUrl": "https://www.upwork.com/profile-portraits/c1UgJmW0-Txn6PJ8q0Xhpu2E6-nJCg9P2mlJQepXnTBkfjIk5-UjBdYfi1P6U9stpl",
+          "type": "SOLE_PROPRIETOR"
+        }
+      },
+      "url": "https://www.upwork.com/jobs/~022039192802816284989"
+    },
+    "scrapedAt": "2026-04-01T11:50:05.565Z",
+    "source": "find-work-job-list",
+    "sourceFindWorkCiphertext": "~022039192802816284989",
+    "sourceFindWorkTab": "best-matches",
+    "sourceFindWorkUid": "2039192802816284989",
+    "sourcePageUrl": "https://www.upwork.com/nx/find-work/best-matches"
+  },
+  {
+    "jobPostPage": {
+      "data": {
+        "clientInfo": {
+          "companyHistory": {
+            "memberSince": "2026-03-30T00:00:00.000Z",
+            "openJobsCount": 1,
+            "totalJobsPosted": 2
+          },
+          "isEnterprise": false,
+          "isPaymentMethodVerified": false,
+          "location": {
+            "country": "United Arab Emirates",
+            "timezone": "Asia/Tbilisi (UTC+04:00)"
+          },
+          "stats": {
+            "activeAssignments": 0,
+            "feedbackScore": 0,
+            "totalHires": 0
+          }
+        },
+        "jobPost": {
+          "budget": {
+            "amount": 0,
+            "currency": "USD",
+            "extendedInfo": {
+              "hourlyBudgetMax": 40,
+              "hourlyBudgetMin": 8,
+              "hourlyBudgetType": "MANUAL"
+            }
+          },
+          "category": "Data Extraction/ETL",
+          "ciphertext": "~022039088434408200978",
+          "clientActivity": {
+            "invitationsSent": 1,
+            "lastBuyerActivity": "2026-03-31T21:14:37.697Z",
+            "numberOfPositionsToHire": 1,
+            "totalApplicants": 11,
+            "totalHired": 0,
+            "totalInvitedToInterview": 1,
+            "unansweredInvites": 0
+          },
+          "description": "OVERVIEW\nWe're building a daily data pipeline that collects publicly available listing data from 2 classified marketplaces in the Middle East, with plans to expand to additional platforms over time. The collected data will be cleansed, harmonized across sources, and stored in Google Cloud (BigQuery) for downstream analytics and market research. We're looking for an experienced data engineer who can design, build, and maintain a robust, production-grade solution that operates within the terms of service of the target platforms and applicable local regulations.\n\nSCOPE\n* Data of interest: Listing title, description, category, price, location, publicly displayed seller details, posting date, images/media URLs, and relevant metadata. Full details will be shared with the successful candidate in a briefing package.\n* Estimated volume: ~20-40k weekly posts\n* Additional platforms will be added over time, so the architecture must be modular and extensible\n\nTECHNICAL REQUIREMENTS\n* Design and implement data collection scripts capable of handling dynamic/JavaScript-rendered pages, pagination, and identification of available public API endpoints\n* Implement respectful crawling practices including request throttling, rate-limit compliance, and adherence to robots.txt directives. Describe your approach to polite, sustainable data collection\n* Some target platforms may restrict access by geography. Candidates should describe their approach to accessing content intended for users in Saudi Arabia — for example, deploying scrapers from GCP's Middle East region (me-central2) or using compliant proxy services. Experience working with mobile-first platforms or mobile APIs is a plus\n* Deploy the pipeline on GCP (Cloud Run, Cloud Functions, or Compute Engine — open to your recommendation)\n* Orchestrate daily runs using Cloud Scheduler, Airflow, or an equivalent\n* Store raw and cleansed data in Google Cloud Storage and BigQuery with a well-documented schema\n* Implement data quality checks: deduplication, schema validation, handling of missing or malformed fields\n* Build structured monitoring and alerting (e.g., Cloud Monitoring, Slack/email notifications) that captures outage details, root cause, and resolution status\n\nCANDIDATE REQUIREMENTS\n* Intermediate to advanced proficiency in web scraping and data collection (Python preferred — Scrapy, Playwright, or similar)\n* Strong experience with GCP, specifically BigQuery and Cloud Storage\n* Familiarity with pipeline orchestration tools\n* Ability to navigate and extract structured data from Arabic-language sites; Arabic proficiency is a plus but not required — the key skill is working with site structures and APIs regardless of language\n* Experience collecting data from classified or e-commerce platforms is a strong plus\n* Familiarity with deploying infrastructure in specific GCP regions and working with regional access requirements\n\nDELIVERABLES\n* Production-ready data collection pipeline deployed on GCP\n* Documented codebase in a Git repository with deployment scripts and a README\n* BigQuery schema and data dictionary\n* Monitoring and alerting setup with a runbook for common failure modes\n\nENGAGEMENT STRUCTURE\n* Open to hourly or fixed-price for the initial scope described here — your preference\n* For strong candidates, we anticipate 3-5 hours per week on an ongoing basis to expand to additional data sources\n* Ready to start ASAP\n\nHOW TO APPLY\nIn your proposal, please include:\n\n* A brief description of how you would approach collecting data from a classified site in the Middle East, including how you'd handle regional access requirements and ensure compliance with platform terms of service\n* Examples of similar data collection projects you've completed, particularly involving classified or e-commerce platforms\n* Your experience with GCP data infrastructure\n* Your approach to ensuring the solution remains stable and maintainable over time as target sites evolve\n\nAll work must comply with the target platforms' terms of service and applicable local regulations.",
+          "duration": {
+            "label": "1 to 3 months",
+            "weeks": 9
+          },
+          "id": "2039088434408200978",
+          "postedOn": "2026-03-31T21:12:22.185Z",
+          "screeningQuestions": [
+            "A brief description of how you would approach scraping a classified site in the Middle East including how you'd handle anti-scraping measures and any geo-restriction or IP-based access controls",
+            "Examples of similar scraping projects you've completed, particularly involving classified or e-commerce platforms",
+            "Your experience with GCP data infrastructure",
+            "Your approach to ensuring the solution remains stable and maintainable over time as target sites evolve"
+          ],
+          "status": 1,
+          "subCategory": "Data Science & Analytics",
+          "title": "[Medium to Long Term] Data Scraping and Reconciliation for Classifieds",
+          "type": 2,
+          "url": "https://www.upwork.com/jobs/~022039088434408200978",
+          "workload": "Less than 30 hrs/week"
+        },
+        "viewerProfile": {
+          "monetizedTitle": "Freelancer",
+          "name": "Aladdin Najjar",
+          "photoUrl": "https://www.upwork.com/profile-portraits/c1UgJmW0-Txn6PJ8q0Xhpu2E6-nJCg9P2mlJQepXnTBkfjIk5-UjBdYfi1P6U9stpl",
+          "type": "SOLE_PROPRIETOR"
+        }
+      },
+      "url": "https://www.upwork.com/jobs/~022039088434408200978"
+    },
+    "scrapedAt": "2026-04-01T11:50:07.678Z",
+    "source": "find-work-job-list",
+    "sourceFindWorkCiphertext": "~022039088434408200978",
+    "sourceFindWorkTab": "best-matches",
+    "sourceFindWorkUid": "2039088434408200978",
+    "sourcePageUrl": "https://www.upwork.com/nx/find-work/best-matches"
+  },
+  {
+    "jobPostPage": {
+      "data": {
+        "clientInfo": {
+          "companyHistory": {
+            "memberSince": "2016-05-07T00:00:00.000Z",
+            "openJobsCount": 2,
+            "totalJobsPosted": 68
+          },
+          "isEnterprise": false,
+          "isPaymentMethodVerified": true,
+          "location": {
+            "city": "LONDON",
+            "country": "United Kingdom",
+            "timezone": "Africa/Casablanca (UTC+01:00)"
+          },
+          "stats": {
+            "activeAssignments": 14,
+            "avgHourlyRatePaid": {
+              "amount": 8.513842546667869
+            },
+            "feedbackScore": 4.98,
+            "totalHires": 45,
+            "totalSpent": 5125.24
+          }
+        },
+        "jobPost": {
+          "budget": {
+            "amount": 0,
+            "currency": "USD",
+            "extendedInfo": {
+              "hourlyBudgetMax": 10,
+              "hourlyBudgetMin": 5,
+              "hourlyBudgetType": "MANUAL"
+            }
+          },
+          "category": "Web Development",
+          "ciphertext": "~022039298756482240093",
+          "clientActivity": {
+            "invitationsSent": 8,
+            "lastBuyerActivity": "2026-04-01T11:20:12.645Z",
+            "numberOfPositionsToHire": 1,
+            "totalApplicants": 35,
+            "totalHired": 0,
+            "totalInvitedToInterview": 2,
+            "unansweredInvites": 6
+          },
+          "description": "We are UK (London based firm) building a web/mobile application that helps users find the cheapest tickets within a flexible date range (e.g. across a full month).\n\nThe platform will integrate with data providers ) and implement custom logic to aggregate, compare, and surface the lowest fares.\n\nThis is an MVP-focused project with potential to scale into a full  product for multiple areas within the industry. \n\nWe need someone to:\n\nDesign and build a scalable backend system\nIntegrate external APIs and handle data inconsistencies\nImplement efficient multi-date search logic\nOptimise performance using caching and async processing\nCollaborate on product decisions and user experience\nDeploy and manage infrastructure (cloud-based)\n\nWe need someone with:\n\nStrong experience as a Full-Stack Developer (5+ years preferred)\nBackend expertise in Node.js or Python (FastAPI/Django)\nFrontend experience with React / Next.js\nProven experience integrating third-party APIs\nExperience building:\nMarketplaces, aggregators, or booking systems\nData-driven or search-based applications\nKnowledge of:\nAsync processing / parallel requests\nCaching (e.g. Redis)\nCloud platforms (AWS, GCP, or similar)\n\nThe aim would be to have;\n\nA working MVP that:\nReturns cheapest tickets across a 30-day window\nDisplays results quickly and clearly\nClean, maintainable, and scalable codebase\nEfficient API usage and cost-aware architecture\n\nPlease apply if you have worked on something like this before and share your example in the appplication.",
+          "duration": {
+            "label": "More than 6 months",
+            "weeks": 52
+          },
+          "id": "2039298756482240093",
+          "postedOn": "2026-04-01T11:08:06.947Z",
+          "status": 1,
+          "subCategory": "Web, Mobile & Software Dev",
+          "title": "Full-stack developer (with strong backend focus)",
+          "type": 2,
+          "url": "https://www.upwork.com/jobs/~022039298756482240093",
+          "workload": "More than 30 hrs/week"
+        },
+        "viewerProfile": {
+          "monetizedTitle": "Freelancer",
+          "name": "Aladdin Najjar",
+          "photoUrl": "https://www.upwork.com/profile-portraits/c1UgJmW0-Txn6PJ8q0Xhpu2E6-nJCg9P2mlJQepXnTBkfjIk5-UjBdYfi1P6U9stpl",
+          "type": "SOLE_PROPRIETOR"
+        }
+      },
+      "url": "https://www.upwork.com/jobs/~022039298756482240093"
+    },
+    "scrapedAt": "2026-04-01T11:50:09.869Z",
+    "source": "find-work-job-list",
+    "sourceFindWorkCiphertext": "~022039298756482240093",
+    "sourceFindWorkTab": "best-matches",
+    "sourceFindWorkUid": "2039298756482240093",
+    "sourcePageUrl": "https://www.upwork.com/nx/find-work/best-matches"
+  },
+  {
+    "jobPostPage": {
+      "data": {
+        "clientInfo": {
+          "companyHistory": {
+            "memberSince": "2026-01-13T00:00:00.000Z",
+            "openJobsCount": 1,
+            "totalJobsPosted": 8
+          },
+          "isEnterprise": false,
+          "isPaymentMethodVerified": true,
+          "location": {
+            "city": "Sydney",
+            "country": "Australia",
+            "timezone": "Australia/Sydney (UTC+11:00)"
+          },
+          "stats": {
+            "activeAssignments": 0,
+            "avgHourlyRatePaid": {
+              "amount": 3
+            },
+            "feedbackScore": 5,
+            "totalHires": 3,
+            "totalSpent": 439.29
+          }
+        },
+        "jobPost": {
+          "budget": {
+            "amount": 50,
+            "currency": "USD",
+            "extendedInfo": {
+              "hourlyBudgetMax": null,
+              "hourlyBudgetMin": null,
+              "hourlyBudgetType": null
+            }
+          },
+          "category": "Web Development",
+          "ciphertext": "~022039205795207453458",
+          "clientActivity": {
+            "invitationsSent": 0,
+            "lastBuyerActivity": "2026-04-01T04:58:43.062Z",
+            "numberOfPositionsToHire": 1,
+            "totalApplicants": 17,
+            "totalHired": 0,
+            "totalInvitedToInterview": 0,
+            "unansweredInvites": 0
+          },
+          "description": "I'm building a scraping service using Next.js, FastAPI, Supabase, PostgreSQL, and AWS, but ran into a small issue.\n\nLooking for a developer with AI and backend experience to help fix it.\n\nSkills needed:\n\nAI / ML knowledge\nBackend development (FastAPI, Next.js optional)\nPostgreSQL / Supabase\nAWS\nScraping experience is a plus\n\nPlease share similar projects you've done.",
+          "duration": {
+            "label": "Less than 1 month",
+            "weeks": 3
+          },
+          "id": "2039205795207453458",
+          "postedOn": "2026-04-01T04:58:43.090Z",
+          "status": 1,
+          "subCategory": "Web, Mobile & Software Dev",
+          "title": "AI & Backend Developer Needed for Scraping Service",
+          "type": 1,
+          "url": "https://www.upwork.com/jobs/~022039205795207453458"
+        },
+        "viewerProfile": {
+          "monetizedTitle": "Freelancer",
+          "name": "Aladdin Najjar",
+          "photoUrl": "https://www.upwork.com/profile-portraits/c1UgJmW0-Txn6PJ8q0Xhpu2E6-nJCg9P2mlJQepXnTBkfjIk5-UjBdYfi1P6U9stpl",
+          "type": "SOLE_PROPRIETOR"
+        }
+      },
+      "url": "https://www.upwork.com/jobs/~022039205795207453458"
+    },
+    "scrapedAt": "2026-04-01T11:50:12.146Z",
+    "source": "find-work-job-list",
+    "sourceFindWorkCiphertext": "~022039205795207453458",
+    "sourceFindWorkTab": "best-matches",
+    "sourceFindWorkUid": "2039205795207453458",
+    "sourcePageUrl": "https://www.upwork.com/nx/find-work/best-matches"
+  },
+  {
+    "jobPostPage": {
+      "data": {
+        "clientInfo": {
+          "companyHistory": {
+            "memberSince": "2026-03-31T00:00:00.000Z",
+            "openJobsCount": 1,
+            "totalJobsPosted": 1
+          },
+          "isEnterprise": false,
+          "isPaymentMethodVerified": false,
+          "location": {
+            "country": "India",
+            "timezone": "Asia/Calcutta (UTC+05:30)"
+          },
+          "stats": {
+            "activeAssignments": 0,
+            "feedbackScore": 0,
+            "totalHires": 0
+          }
+        },
+        "jobPost": {
+          "budget": {
+            "amount": 0,
+            "currency": "USD",
+            "extendedInfo": {
+              "hourlyBudgetMax": null,
+              "hourlyBudgetMin": null,
+              "hourlyBudgetType": "NOT_PROVIDED"
+            }
+          },
+          "category": "Data Extraction/ETL",
+          "ciphertext": "~022039059545874547154",
+          "clientActivity": {
+            "invitationsSent": 0,
+            "lastBuyerActivity": "2026-03-31T19:27:23.304Z",
+            "numberOfPositionsToHire": 1,
+            "totalApplicants": 9,
+            "totalHired": 0,
+            "totalInvitedToInterview": 0,
+            "unansweredInvites": 0
+          },
+          "description": "Hi, I want to build a small software tool for my scrap business.\n\nRequirement:\nI want a system that automatically collects scrap auction data from websites like MSTC, mjunction, etc.\n\nThe system should:\n\n- Extract details like material (Copper, Aluminium), quantity, location, auction date, and link\n- Store all data in Google Sheets or database\n- Allow keyword search (like “copper scrap”)\n- Send alerts (email/WhatsApp) when matching auctions come\n\nIt should run automatically daily without manual work.\n\nStart with MSTC first, then we can expand to other websites.\n\nPlease let me know:\n\n1. If you have built similar scraping/automation systems\n2. What tech you will use\n3. Estimated cost & time\n\nLooking for a reliable long-term developer.",
+          "duration": {
+            "label": "1 to 3 months",
+            "weeks": 9
+          },
+          "id": "2039059545874547154",
+          "postedOn": "2026-03-31T19:17:34.670Z",
+          "status": 1,
+          "subCategory": "Data Science & Analytics",
+          "title": "Scrap Auction Search and Alert Sysytem",
+          "type": 2,
+          "url": "https://www.upwork.com/jobs/~022039059545874547154",
+          "workload": "Less than 30 hrs/week"
+        },
+        "viewerProfile": {
+          "monetizedTitle": "Freelancer",
+          "name": "Aladdin Najjar",
+          "photoUrl": "https://www.upwork.com/profile-portraits/c1UgJmW0-Txn6PJ8q0Xhpu2E6-nJCg9P2mlJQepXnTBkfjIk5-UjBdYfi1P6U9stpl",
+          "type": "SOLE_PROPRIETOR"
+        }
+      },
+      "url": "https://www.upwork.com/jobs/~022039059545874547154"
+    },
+    "scrapedAt": "2026-04-01T11:50:14.230Z",
+    "source": "find-work-job-list",
+    "sourceFindWorkCiphertext": "~022039059545874547154",
+    "sourceFindWorkTab": "best-matches",
+    "sourceFindWorkUid": "2039059545874547154",
+    "sourcePageUrl": "https://www.upwork.com/nx/find-work/best-matches"
+  },
+  {
+    "jobPostPage": {
+      "data": {
+        "clientInfo": {
+          "companyHistory": {
+            "memberSince": "2026-03-31T00:00:00.000Z",
+            "openJobsCount": 1,
+            "totalJobsPosted": 1
+          },
+          "isEnterprise": false,
+          "isPaymentMethodVerified": false,
+          "location": {
+            "country": "South Africa",
+            "timezone": "Africa/Harare (UTC+02:00)"
+          },
+          "stats": {
+            "activeAssignments": 0,
+            "feedbackScore": 0,
+            "totalHires": 0
+          }
+        },
+        "jobPost": {
+          "budget": {
+            "amount": 0,
+            "currency": "USD",
+            "extendedInfo": {
+              "hourlyBudgetMax": 30,
+              "hourlyBudgetMin": 15,
+              "hourlyBudgetType": "DEFAULT"
+            }
+          },
+          "category": "Web Development",
+          "ciphertext": "~022038966732436586962",
+          "clientActivity": {
+            "invitationsSent": 1,
+            "lastBuyerActivity": "2026-03-31T13:11:08.933Z",
+            "numberOfPositionsToHire": 1,
+            "totalApplicants": 6,
+            "totalHired": 0,
+            "totalInvitedToInterview": 1,
+            "unansweredInvites": 0
+          },
+          "description": "We are seeking a skilled developer to finalize a fixed-layout A4 PDF engine that maps JSON data to a rigid 4-quadrant grid. The project requires the integration of a Streamlit UI to allow users to customize block colors and positions intuitively. The ideal candidate will have experience with PDF generation, JSON manipulation, and creating interactive interfaces. If you are passionate about delivering high-quality user experiences and have a strong background in these technologies, we would love to hear from you.",
+          "duration": {
+            "label": "1 to 3 months",
+            "weeks": 9
+          },
+          "id": "2038966732436586962",
+          "postedOn": "2026-03-31T13:08:46.227Z",
+          "status": 1,
+          "subCategory": "Web, Mobile & Software Dev",
+          "title": "PDF Engine Mapping & Streamlit UI Development",
+          "type": 2,
+          "url": "https://www.upwork.com/jobs/~022038966732436586962",
+          "workload": "Less than 30 hrs/week"
+        },
+        "viewerProfile": {
+          "monetizedTitle": "Freelancer",
+          "name": "Aladdin Najjar",
+          "photoUrl": "https://www.upwork.com/profile-portraits/c1UgJmW0-Txn6PJ8q0Xhpu2E6-nJCg9P2mlJQepXnTBkfjIk5-UjBdYfi1P6U9stpl",
+          "type": "SOLE_PROPRIETOR"
+        }
+      },
+      "url": "https://www.upwork.com/jobs/~022038966732436586962"
+    },
+    "scrapedAt": "2026-04-01T11:50:16.273Z",
+    "source": "find-work-job-list",
+    "sourceFindWorkCiphertext": "~022038966732436586962",
+    "sourceFindWorkTab": "best-matches",
+    "sourceFindWorkUid": "2038966732436586962",
+    "sourcePageUrl": "https://www.upwork.com/nx/find-work/best-matches"
+  },
+  {
+    "jobPostPage": {
+      "data": {
+        "clientInfo": {
+          "companyHistory": {
+            "memberSince": "2021-07-21T00:00:00.000Z",
+            "openJobsCount": 5,
+            "totalJobsPosted": 59
+          },
+          "isEnterprise": false,
+          "isPaymentMethodVerified": true,
+          "location": {
+            "city": "Dubai",
+            "country": "United Arab Emirates",
+            "timezone": "Asia/Tbilisi (UTC+04:00)"
+          },
+          "stats": {
+            "activeAssignments": 4,
+            "avgHourlyRatePaid": {
+              "amount": 13.530537340823134
+            },
+            "feedbackScore": 4.91,
+            "totalHires": 73,
+            "totalSpent": 16224.16
+          }
+        },
+        "jobPost": {
+          "budget": {
+            "amount": 0,
+            "currency": "USD",
+            "extendedInfo": {
+              "hourlyBudgetMax": null,
+              "hourlyBudgetMin": null,
+              "hourlyBudgetType": "NOT_PROVIDED"
+            }
+          },
+          "category": "Accounting & Bookkeeping",
+          "ciphertext": "~022039104660665824164",
+          "clientActivity": {
+            "invitationsSent": 21,
+            "lastBuyerActivity": "2026-04-01T11:36:47.899Z",
+            "numberOfPositionsToHire": 1,
+            "totalApplicants": 5,
+            "totalHired": 0,
+            "totalInvitedToInterview": 3,
+            "unansweredInvites": 14
+          },
+          "description": "Description:\n\nLooking for a Make (Integromat) expert to build a no-code automation syncing Shopify, Google Ads, and Facebook Ads data into a Google Drive accounting system.\n\nThe job (please watch the video) :\nhttps://www.loom.com/share/3098e64c24bd4b3a97cced5139974f86\nhttps://www.loom.com/share/3e5adbf335e647cd8506daab4d27e7c9\n\nScope:\nConnect multiple Shopify stores + Ads accounts\nCreate scalable scenarios\nHourly refresh (or more if optimized)\nStructured Google Drive storage (year/month)\nDaily backup + weekly data verification (re-sync & check gaps)\nWork alongside an existing app (already handling part of the storage)\nImportant:\n\n\n👉 2 videos are attached — you must watch them before applying\n👉 If you don’t mention the videos + don’t include your price, your application will NOT be reviewed\n\nApply with:\nSimilar work\nYour price\nConfirmation you watched the videos",
+          "duration": {
+            "label": "Less than 1 month",
+            "weeks": 3
+          },
+          "id": "2039104660665824164",
+          "postedOn": "2026-03-31T22:16:50.836Z",
+          "status": 1,
+          "subCategory": "Accounting & Consulting",
+          "title": "Make (Integromat) Automation – Accounting App Sync (Google Drive + Hourly Refresh)",
+          "type": 2,
+          "url": "https://www.upwork.com/jobs/~022039104660665824164",
+          "workload": "Less than 30 hrs/week"
+        },
+        "viewerProfile": {
+          "monetizedTitle": "Freelancer",
+          "name": "Aladdin Najjar",
+          "photoUrl": "https://www.upwork.com/profile-portraits/c1UgJmW0-Txn6PJ8q0Xhpu2E6-nJCg9P2mlJQepXnTBkfjIk5-UjBdYfi1P6U9stpl",
+          "type": "SOLE_PROPRIETOR"
+        }
+      },
+      "url": "https://www.upwork.com/jobs/~022039104660665824164"
+    },
+    "scrapedAt": "2026-04-01T11:50:21.217Z",
+    "source": "find-work-job-list",
+    "sourceFindWorkCiphertext": "~022039104660665824164",
+    "sourceFindWorkTab": "best-matches",
+    "sourceFindWorkUid": "2039104660665824164",
+    "sourcePageUrl": "https://www.upwork.com/nx/find-work/best-matches"
+  }
+]

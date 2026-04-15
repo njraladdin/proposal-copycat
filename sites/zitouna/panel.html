@@ -1,0 +1,34 @@
+<div id="authWarningZitouna" class="info-warning" style="display: none;">Open the Banque Zitouna online banking page to record transactions.</div>
+
+<div class="controls">
+  <div class="control-left">
+    <button id="startZitounaRecording">Start Recording</button>
+    <button id="stopZitounaRecording" style="display: none; background: #e74c3c; color: white;">Stop Recording</button>
+  </div>
+  <div class="control-right">
+    <button id="clearZitounaData" class="clear-btn">Clear Data</button>
+  </div>
+</div>
+
+<div class="data-preview" style="margin-bottom: 12px;">
+  <div class="data-preview-header">
+    <div class="data-preview-title">Recording Status</div>
+  </div>
+  <p class="subtle-note" id="zitounaStatusHeadline">Ready.</p>
+</div>
+
+<div class="data-preview">
+  <div class="data-preview-header">
+    <div class="data-preview-title">Transactions (<span id="zitounaTransactionCount">0</span>)</div>
+  </div>
+  <p class="subtle-note">Captured from Banque Zitouna transaction history pages.</p>
+  <div class="raw-json-toolbar">
+    <span>Exact stored payload</span>
+    <div class="toolbar-actions">
+      <button id="loadZitounaJson" class="copy-json-btn">Load JSON</button>
+      <button id="downloadZitounaJson" class="copy-json-btn">Download JSON</button>
+      <button id="copyZitounaJson" class="copy-json-btn">Copy JSON</button>
+    </div>
+  </div>
+  <textarea id="zitounaJsonOutput" class="raw-json" readonly></textarea>
+</div>

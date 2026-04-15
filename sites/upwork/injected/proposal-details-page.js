@@ -857,6 +857,15 @@
                 }
                 const jobPostUrl = proposalPageData?.jobPost?.url || null;
                 const jobPostFetchResult = await fetchJobPostRawData(jobPostUrl, linkData.href);
+                if (jobPostFetchResult?.blockedReason === 'captcha') {
+                    const blockedError = new Error(
+                        jobPostFetchResult?.blockMessage ||
+                        'Cloudflare captcha encountered while fetching Upwork job details.'
+                    );
+                    blockedError.code = 'proposal_copycat_job_post_captcha';
+                    blockedError.details = jobPostFetchResult?.blockDetails || null;
+                    throw blockedError;
+                }
                 const jobPostData = jobPostFetchResult?.data || null;
                 const coverLetter = proposalPageData?.proposal?.coverLetter || null;
                 const connectsSpent = proposalPageData?.proposal?.terms?.connectsSpent ?? null;
@@ -904,6 +913,9 @@
                     coverLetter
                 };
             } catch (error) {
+                if (error?.code === 'proposal_copycat_job_post_captcha') {
+                    throw error;
+                }
                 recordError('proposal_visit_exception', {
                     message: error?.message || 'unexpected proposal visit failure',
                     sourceUrl: linkData?.href || 'unknown-url'

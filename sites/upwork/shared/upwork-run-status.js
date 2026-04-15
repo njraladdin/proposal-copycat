@@ -17,6 +17,7 @@
         const scrapeMode = normalizeScrapeMode(options?.scrapeMode);
         const scrapeCurrentJobPost = options?.scrapeCurrentJobPost === true;
         const scrapeJobPostsFromSavedList = options?.scrapeJobPostsFromSavedList === true;
+        const scrapeJobPostsFromFindWorkList = options?.scrapeJobPostsFromFindWorkList === true;
         const scrapeArchivedListOnly = options?.scrapeArchivedListOnly === true;
         const scrapeProposalDetailsFromList = options?.scrapeProposalDetailsFromList === true;
         const trackFindWorkJobList = options?.trackFindWorkJobList === true;
@@ -25,6 +26,7 @@
             !scrapeArchivedListOnly &&
             !scrapeCurrentJobPost &&
             !scrapeJobPostsFromSavedList &&
+            !scrapeJobPostsFromFindWorkList &&
             !trackFindWorkJobList
         );
 
@@ -51,6 +53,14 @@
                 modeBadgeText: scrapeMode === 'all'
                     ? 'Job Posts From Saved Details: All Proposals'
                     : 'Job Posts From Saved Details: Successful Only'
+            };
+        }
+
+        if (scrapeJobPostsFromFindWorkList) {
+            return {
+                runKind: 'find-work-job-posts',
+                statusTitle: 'Collecting Find Work Job Posts',
+                modeBadgeText: 'Find Work Details'
             };
         }
 
@@ -89,6 +99,7 @@
             trackFindWorkJobList: input?.runKind === 'find-work-job-list',
             scrapeCurrentJobPost: input?.runKind === 'current-job-post',
             scrapeJobPostsFromSavedList: input?.runKind === 'job-posts-from-saved-list',
+            scrapeJobPostsFromFindWorkList: input?.runKind === 'find-work-job-posts',
             scrapeArchivedListOnly: input?.runKind === 'archived-proposal-list',
             scrapeProposalDetailsFromList: input?.runKind === 'proposal-details-from-saved-list'
         });

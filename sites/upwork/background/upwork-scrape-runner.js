@@ -25,6 +25,7 @@ async function runUpworkScrape(options = {}) {
     const scrapeMode = normalizeRunScrapeMode(options?.scrapeMode);
     const scrapeCurrentJobPost = options?.scrapeCurrentJobPost === true;
     const scrapeJobPostsFromSavedList = options?.scrapeJobPostsFromSavedList === true;
+    const scrapeJobPostsFromFindWorkList = options?.scrapeJobPostsFromFindWorkList === true;
     const scrapeArchivedListOnly = options?.scrapeArchivedListOnly === true;
     const scrapeProposalDetailsFromList = options?.scrapeProposalDetailsFromList === true;
     const useDebuggerProposalListCapture = options?.useDebuggerProposalListCapture === true;
@@ -33,7 +34,8 @@ async function runUpworkScrape(options = {}) {
         scrapeProposalDetailsFromList &&
         !scrapeArchivedListOnly &&
         !scrapeCurrentJobPost &&
-        !scrapeJobPostsFromSavedList
+        !scrapeJobPostsFromSavedList &&
+        !scrapeJobPostsFromFindWorkList
     );
     const isDebuggerListCaptureMode = scrapeArchivedListOnly && useDebuggerProposalListCapture;
     const useNetworkMonitor = !disableNetworkMonitor;
@@ -41,12 +43,22 @@ async function runUpworkScrape(options = {}) {
         scrapeMode,
         scrapeCurrentJobPost,
         scrapeJobPostsFromSavedList,
+        scrapeJobPostsFromFindWorkList,
         scrapeArchivedListOnly,
         scrapeProposalDetailsFromList
     });
     const statusTitle = runDescriptor.statusTitle;
     const modeBadgeText = runDescriptor.modeBadgeText;
     const modeSummaryText = scrapeMode === 'all' ? 'all proposals' : 'successful proposals';
+    const JOB_POST_CAPTCHA_ERROR_CODE = 'proposal_copycat_job_post_captcha';
+    const JOB_POST_CAPTCHA_ACTION = (
+        'Cloudflare captcha encountered while fetching Upwork job details. ' +
+        'Open any Upwork job page in the browser, solve the captcha manually, then rerun this step.'
+    );
+    const isJobPostCaptchaError = (error) => error?.code === JOB_POST_CAPTCHA_ERROR_CODE;
+    const buildJobPostCaptchaAction = (savedCount = 0) => (
+        JOB_POST_CAPTCHA_ACTION + (savedCount > 0 ? ` Partial saves kept: ${savedCount}.` : '')
+    );
 
     // Get existing proposals from storage
     const storageData = await chrome.storage.local.get(['proposals', 'proposalList']);
@@ -150,6 +162,14 @@ async function runUpworkScrape(options = {}) {
             proposal?.jobPostPage?.url ||
             proposal?.proposalDetailsPage?.jobPostHref ||
             getProposalDetailsPageData(proposal)?.jobPost?.url
+        )
+    );
+    const extractJobPostUrlFromFindWorkEntry = (entry) => (
+        normalizeJobPostHref(
+            entry?.jobPostUrl ||
+            entry?.ciphertext ||
+            entry?.rawGraphql?.ciphertext ||
+            deriveCiphertextFromOpeningId(entry?.uid || entry?.rawGraphql?.uid)
         )
     );
     const extractJobPostDataFallbackFromProposal = (proposal, fallbackJobUrl = '') => {
@@ -318,12 +338,13 @@ async function runUpworkScrape(options = {}) {
         modeBadgeText,
         scrapeCurrentJobPost,
         scrapeJobPostsFromSavedList,
+        scrapeJobPostsFromFindWorkList,
         scrapeArchivedListOnly,
         scrapeDetailsFromSavedList,
         runStatusStorageKey: RUN_STATUS_STORAGE_KEY,
         runControlStorageKey: RUN_CONTROL_STORAGE_KEY,
         getTotalSavedCount: () => {
-            if (scrapeCurrentJobPost || scrapeJobPostsFromSavedList) {
+            if (scrapeCurrentJobPost || scrapeJobPostsFromSavedList || scrapeJobPostsFromFindWorkList) {
                 return persistedRecordCount;
             }
             if (scrapeArchivedListOnly) {
@@ -518,7 +539,7 @@ async function runUpworkScrape(options = {}) {
     debugLog(
         `Loaded ${existingProposals.length} detailed proposals and ${existingProposalList.length} list records from storage. ` +
         `Mode: ${scrapeMode}, listOnly: ${scrapeArchivedListOnly}, detailsFromList: ${scrapeDetailsFromSavedList}, ` +
-        `jobPostsFromList: ${scrapeJobPostsFromSavedList}, ` +
+        `jobPostsFromList: ${scrapeJobPostsFromSavedList}, findWorkJobPostsFromList: ${scrapeJobPostsFromFindWorkList}, ` +
         `debuggerListCapture: ${useDebuggerProposalListCapture}, networkMonitor: ${useNetworkMonitor}`
     );
     await initializeRunState();
@@ -568,7 +589,8 @@ async function runUpworkScrape(options = {}) {
     const needsProposalDetailsScraper = (
         !scrapeArchivedListOnly &&
         !scrapeCurrentJobPost &&
-        !scrapeJobPostsFromSavedList
+        !scrapeJobPostsFromSavedList &&
+        !scrapeJobPostsFromFindWorkList
     );
     let visitProposalPage = async () => {
         throw new Error('Proposal details scraper is not initialized for this mode.');
@@ -633,6 +655,18 @@ async function runUpworkScrape(options = {}) {
 
             const jobPostFetchResult = await fetchJobPostRawData(currentPageUrl, currentPageUrl);
             throwIfStopRequested();
+            if (jobPostFetchResult?.blockedReason === 'captcha') {
+                updateStatus({
+                    action: jobPostFetchResult?.blockMessage || JOB_POST_CAPTCHA_ACTION,
+                    listCurrent: '1',
+                    listTotal: '1',
+                    itemCurrent: 0,
+                    itemTotal: 1,
+                    runComplete: true,
+                    runStatus: 'blocked'
+                });
+                return [];
+            }
             const jobPostData = jobPostFetchResult?.data || null;
 
             if (!jobPostData || Object.keys(jobPostData).length === 0) {
@@ -678,6 +712,14 @@ async function runUpworkScrape(options = {}) {
                     action: 'Stopped from the side panel.',
                     runComplete: true,
                     runStatus: 'stopped'
+                });
+                return [];
+            }
+            if (isJobPostCaptchaError(error)) {
+                updateStatus({
+                    action: JOB_POST_CAPTCHA_ACTION,
+                    runComplete: true,
+                    runStatus: 'blocked'
                 });
                 return [];
             }
@@ -783,6 +825,18 @@ async function runUpworkScrape(options = {}) {
 
                 const jobPostFetchResult = await fetchJobPostRawData(target.jobUrl, target.sourceProposalUrl || target.jobUrl);
                 throwIfStopRequested();
+                if (jobPostFetchResult?.blockedReason === 'captcha') {
+                    updateStatus({
+                        listCurrent: '1',
+                        listTotal: '1',
+                        itemCurrent: index,
+                        itemTotal: jobTargets.length,
+                        action: buildJobPostCaptchaAction(savedRecords.length),
+                        runComplete: true,
+                        runStatus: 'blocked'
+                    });
+                    return savedRecords;
+                }
                 let jobPostData = jobPostFetchResult?.data || null;
                 let usedDetailsFallback = false;
                 if (!jobPostData || Object.keys(jobPostData).length === 0) {
@@ -849,12 +903,217 @@ async function runUpworkScrape(options = {}) {
                 });
                 return [];
             }
+            if (isJobPostCaptchaError(error)) {
+                updateStatus({
+                    action: buildJobPostCaptchaAction(),
+                    runComplete: true,
+                    runStatus: 'blocked'
+                });
+                return [];
+            }
             updateStatus({
                 action: `Error: ${error.message}${errorState.total > 0 ? ` (tracked errors: ${errorState.total})` : ''}`,
                 runComplete: true,
                 runStatus: 'failed'
             });
             console.error('Saved-list job post scraping error:', error);
+            return [];
+        } finally {
+            teardownNetworkBridge();
+            await teardownSandboxBridge();
+        }
+    }
+
+    if (scrapeJobPostsFromFindWorkList) {
+        try {
+            const findWorkStorage = await chrome.storage.local.get(['findWorkJobList', 'findWorkJobPosts']);
+            const savedFindWorkJobList = Array.isArray(findWorkStorage.findWorkJobList)
+                ? findWorkStorage.findWorkJobList
+                : [];
+            const existingFindWorkJobPosts = Array.isArray(findWorkStorage.findWorkJobPosts)
+                ? findWorkStorage.findWorkJobPosts
+                : [];
+            const findWorkJobPostsByUrl = new Map();
+            for (const entry of existingFindWorkJobPosts) {
+                const existingUrl = normalizeJobPostHref(entry?.jobPostPage?.url || entry?.sourcePageUrl);
+                if (existingUrl) {
+                    findWorkJobPostsByUrl.set(existingUrl, entry);
+                }
+            }
+
+            const seenJobUrls = new Set();
+            const jobTargets = [];
+            let entriesWithDerivedJobUrl = 0;
+            let alreadyScrapedCount = 0;
+            for (const entry of savedFindWorkJobList) {
+                const jobUrl = extractJobPostUrlFromFindWorkEntry(entry);
+                if (!jobUrl) {
+                    continue;
+                }
+
+                entriesWithDerivedJobUrl += 1;
+                if (seenJobUrls.has(jobUrl)) {
+                    continue;
+                }
+                seenJobUrls.add(jobUrl);
+
+                if (findWorkJobPostsByUrl.has(jobUrl)) {
+                    alreadyScrapedCount += 1;
+                    continue;
+                }
+
+                const primaryCaptureContext = Array.isArray(entry?.captureContexts) ? entry.captureContexts[0] : null;
+                jobTargets.push({
+                    jobUrl,
+                    uid: String(entry?.uid || entry?.rawGraphql?.uid || '').trim(),
+                    ciphertext: String(entry?.ciphertext || entry?.rawGraphql?.ciphertext || '').trim(),
+                    sourcePageUrl: String(primaryCaptureContext?.pageUrl || '').trim() || jobUrl,
+                    sourceTab: String(entry?.sourceTab || primaryCaptureContext?.sourceTab || '').trim()
+                });
+            }
+
+            if (!savedFindWorkJobList.length) {
+                updateStatus({
+                    listCurrent: '1',
+                    listTotal: '1',
+                    itemCurrent: 0,
+                    itemTotal: 0,
+                    action: 'No saved Find Work job list found. Run "Start Find Work Tracking" first.',
+                    runComplete: true,
+                    runStatus: 'no-targets'
+                });
+                return [];
+            }
+
+            if (!jobTargets.length) {
+                updateStatus({
+                    listCurrent: '1',
+                    listTotal: '1',
+                    itemCurrent: 0,
+                    itemTotal: 0,
+                    action: (
+                        'No pending Find Work job posts to scrape. ' +
+                        `Saved list entries: ${savedFindWorkJobList.length}; ` +
+                        `with job URL: ${entriesWithDerivedJobUrl}; ` +
+                        `already scraped: ${alreadyScrapedCount}.`
+                    ),
+                    runComplete: true,
+                    runStatus: 'no-targets'
+                });
+                return [];
+            }
+
+            updateStatus({
+                listCurrent: '1',
+                listTotal: '1',
+                itemCurrent: 0,
+                itemTotal: jobTargets.length,
+                action: (
+                    'Scraping job posts from saved Find Work list ' +
+                    `(${jobTargets.length} pending of ${savedFindWorkJobList.length} entries; ` +
+                    `URL found in ${entriesWithDerivedJobUrl}; ` +
+                    `already scraped: ${alreadyScrapedCount}).`
+                )
+            });
+
+            const savedRecords = [];
+            for (let index = 0; index < jobTargets.length; index += 1) {
+                const target = jobTargets[index];
+                await waitWhilePaused();
+
+                updateStatus({
+                    listCurrent: '1',
+                    listTotal: '1',
+                    itemCurrent: index + 1,
+                    itemTotal: jobTargets.length,
+                    action: `Scraping Find Work job post ${index + 1}/${jobTargets.length}`
+                });
+
+                const jobPostFetchResult = await fetchJobPostRawData(target.jobUrl, target.sourcePageUrl || target.jobUrl);
+                throwIfStopRequested();
+                if (jobPostFetchResult?.blockedReason === 'captcha') {
+                    updateStatus({
+                        listCurrent: '1',
+                        listTotal: '1',
+                        itemCurrent: index,
+                        itemTotal: jobTargets.length,
+                        action: buildJobPostCaptchaAction(savedRecords.length),
+                        runComplete: true,
+                        runStatus: 'blocked'
+                    });
+                    return savedRecords;
+                }
+                const jobPostData = jobPostFetchResult?.data || null;
+                if (!jobPostData || Object.keys(jobPostData).length === 0) {
+                    recordError('job_post_parse_empty', {
+                        message: 'No job post data parsed from fetched Find Work job page.',
+                        sourceUrl: target.jobUrl
+                    });
+                    continue;
+                }
+
+                const normalizedJobUrl = jobPostData?.jobPost?.url || target.jobUrl;
+                const jobPostRecord = {
+                    sourcePageUrl: target.sourcePageUrl || target.jobUrl,
+                    sourceFindWorkUid: target.uid || '',
+                    sourceFindWorkCiphertext: target.ciphertext || '',
+                    sourceFindWorkTab: target.sourceTab || '',
+                    scrapedAt: new Date().toISOString(),
+                    jobPostPage: {
+                        url: normalizedJobUrl,
+                        data: jobPostData
+                    },
+                    source: 'find-work-job-list'
+                };
+
+                findWorkJobPostsByUrl.set(normalizedJobUrl, jobPostRecord);
+                savedRecords.push(jobPostRecord);
+                persistedRecordCount = savedRecords.length;
+                if (savedRecords.length % 5 === 0 || index === jobTargets.length - 1) {
+                    await chrome.storage.local.set({ findWorkJobPosts: Array.from(findWorkJobPostsByUrl.values()) });
+                }
+                runMetrics.processedItems += 1;
+                updateStatus();
+                await new Promise(resolve => setTimeout(resolve, 600));
+                throwIfStopRequested();
+            }
+
+            await chrome.storage.local.set({ findWorkJobPosts: Array.from(findWorkJobPostsByUrl.values()) });
+
+            updateStatus({
+                listCurrent: '1',
+                listTotal: '1',
+                itemCurrent: savedRecords.length,
+                itemTotal: jobTargets.length,
+                action: `Find Work job post scraping done (${savedRecords.length}/${jobTargets.length} saved).`,
+                runComplete: true,
+                runStatus: 'completed'
+            });
+
+            return savedRecords;
+        } catch (error) {
+            if (isStopRequestedError(error)) {
+                updateStatus({
+                    action: 'Stopped from the side panel.',
+                    runComplete: true,
+                    runStatus: 'stopped'
+                });
+                return [];
+            }
+            if (isJobPostCaptchaError(error)) {
+                updateStatus({
+                    action: buildJobPostCaptchaAction(),
+                    runComplete: true,
+                    runStatus: 'blocked'
+                });
+                return [];
+            }
+            updateStatus({
+                action: `Error: ${error.message}${errorState.total > 0 ? ` (tracked errors: ${errorState.total})` : ''}`,
+                runComplete: true,
+                runStatus: 'failed'
+            });
+            console.error('Find Work job-post scraping error:', error);
             return [];
         } finally {
             teardownNetworkBridge();
@@ -1086,6 +1345,13 @@ async function runUpworkScrape(options = {}) {
                 runStatus: 'stopped'
             });
             debugLog('Run stopped from the side panel.');
+        } else if (isJobPostCaptchaError(error)) {
+            updateStatus({
+                action: JOB_POST_CAPTCHA_ACTION,
+                runComplete: true,
+                runStatus: 'blocked'
+            });
+            debugLog('Run blocked by Cloudflare captcha challenge.');
         } else {
             updateStatus({
                 action: `Error: ${error.message}${errorState.total > 0 ? ` (tracked errors: ${errorState.total})` : ''}`,

@@ -260,6 +260,62 @@
             return normalizedCleanData;
         };
 
+        const detectCloudflareChallenge = (response, html, parsedDoc, sourceUrl = '', jobUrl = '') => {
+            const responseUrl = String(response?.url || jobUrl || '').trim();
+            const lowerResponseUrl = responseUrl.toLowerCase();
+            const title = String(parsedDoc?.querySelector('title')?.textContent || '').trim();
+            const lowerTitle = title.toLowerCase();
+            const bodyText = String(parsedDoc?.body?.innerText || parsedDoc?.body?.textContent || '').toLowerCase();
+            const htmlText = String(html || '').toLowerCase();
+            const signals = [];
+
+            if (lowerResponseUrl.includes('/cdn-cgi/')) signals.push('response-url-cdn-cgi');
+            if (lowerTitle.includes('just a moment')) signals.push('title-just-a-moment');
+            if (lowerTitle.includes('attention required')) signals.push('title-attention-required');
+            if (bodyText.includes('checking your browser before accessing')) signals.push('body-checking-browser');
+            if (bodyText.includes('verify you are human')) signals.push('body-verify-human');
+            if (bodyText.includes('please enable cookies')) signals.push('body-enable-cookies');
+            if (bodyText.includes('enable javascript and cookies to continue')) signals.push('body-enable-js-cookies');
+            if (bodyText.includes('cloudflare')) signals.push('body-cloudflare');
+            if (htmlText.includes('cf-chl-')) signals.push('html-cf-chl');
+            if (htmlText.includes('challenge-form')) signals.push('html-challenge-form');
+            if (htmlText.includes('turnstile')) signals.push('html-turnstile');
+
+            const strongSignals = [
+                'response-url-cdn-cgi',
+                'title-just-a-moment',
+                'title-attention-required',
+                'body-checking-browser',
+                'body-verify-human'
+            ];
+            const strongMatch = strongSignals.some((signal) => signals.includes(signal));
+            const moderateSignalCount = [
+                'body-enable-cookies',
+                'body-enable-js-cookies',
+                'body-cloudflare',
+                'html-cf-chl',
+                'html-challenge-form',
+                'html-turnstile'
+            ].filter((signal) => signals.includes(signal)).length;
+
+            if (!strongMatch && moderateSignalCount < 2) {
+                return null;
+            }
+
+            debugLog(
+                `[JobPost] ${sourceUrl || jobUrl || 'unknown-url'}: detected Cloudflare challenge ` +
+                `(status=${response?.status ?? 'unknown'}, title="${title || 'n/a'}", signals=${signals.join(',') || 'none'}).`
+            );
+
+            return {
+                reason: 'captcha',
+                responseStatus: response?.status ?? null,
+                responseUrl: responseUrl || null,
+                pageTitle: title || null,
+                signals
+            };
+        };
+
         const fetchJobPostRawData = async (jobUrl, sourceUrl = '') => {
             if (!jobUrl) {
                 debugLog(`[JobPost] ${sourceUrl || 'unknown-url'}: no job URL found, skipping job page fetch.`);
@@ -274,23 +330,48 @@
                     `(${response.ok ? 'ok' : 'not ok'}).`
                 );
 
-                if (!response.ok) {
-                    recordError('job_post_fetch_http', {
-                        message: `HTTP ${response.status}`,
-                        sourceUrl: `${sourceUrl || 'unknown-url'} -> ${jobUrl}`
-                    });
-                    return null;
-                }
-
                 const html = await response.text();
                 debugLog(`[JobPost] ${sourceUrl || 'unknown-url'}: fetched job HTML (${html.length} chars).`);
 
                 const parser = new DOMParser();
                 const doc = parser.parseFromString(html, 'text/html');
+                const challenge = detectCloudflareChallenge(response, html, doc, sourceUrl, jobUrl);
+                if (challenge) {
+                    recordError('job_post_captcha_challenge', {
+                        message: (
+                            'Cloudflare challenge detected. Open any Upwork job page in the browser, ' +
+                            'solve the captcha manually, then rerun this step.'
+                        ),
+                        sourceUrl: `${sourceUrl || 'unknown-url'} -> ${challenge.responseUrl || jobUrl}`
+                    });
+                    return {
+                        data: null,
+                        blockedReason: 'captcha',
+                        blockMessage: (
+                            'Cloudflare captcha encountered while fetching Upwork job details. ' +
+                            'Open any Upwork job page manually, solve the captcha, then rerun this step.'
+                        ),
+                        blockDetails: challenge
+                    };
+                }
+
+                if (!response.ok) {
+                    recordError('job_post_fetch_http', {
+                        message: `HTTP ${response.status}`,
+                        sourceUrl: `${sourceUrl || 'unknown-url'} -> ${jobUrl}`
+                    });
+                    return {
+                        data: null,
+                        responseStatus: response.status
+                    };
+                }
                 const nuxtDataPayload = extractNuxtDataJsonPayload(doc, jobUrl);
 
                 if (!nuxtDataPayload) {
-                    return null;
+                    return {
+                        data: null,
+                        responseStatus: response.status
+                    };
                 }
 
                 const rawJobPostData = {

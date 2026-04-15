@@ -12,6 +12,7 @@
                 scrapeMode: deps?.scrapeMode,
                 scrapeCurrentJobPost: deps?.scrapeCurrentJobPost === true,
                 scrapeJobPostsFromSavedList: deps?.scrapeJobPostsFromSavedList === true,
+                scrapeJobPostsFromFindWorkList: deps?.scrapeJobPostsFromFindWorkList === true,
                 scrapeArchivedListOnly: deps?.scrapeArchivedListOnly === true,
                 scrapeProposalDetailsFromList: deps?.scrapeDetailsFromSavedList === true
             })
@@ -24,6 +25,7 @@
         const modeBadgeText = String(deps?.modeBadgeText || defaultRunDescriptor.modeBadgeText || '');
         const scrapeCurrentJobPost = deps?.scrapeCurrentJobPost === true;
         const scrapeJobPostsFromSavedList = deps?.scrapeJobPostsFromSavedList === true;
+        const scrapeJobPostsFromFindWorkList = deps?.scrapeJobPostsFromFindWorkList === true;
         const scrapeArchivedListOnly = deps?.scrapeArchivedListOnly === true;
         const scrapeDetailsFromSavedList = deps?.scrapeDetailsFromSavedList === true;
         const getTotalSavedCount = typeof deps?.getTotalSavedCount === 'function'
@@ -65,6 +67,7 @@
         const usesPagedListProgress = (
             !scrapeCurrentJobPost &&
             !scrapeJobPostsFromSavedList &&
+            !scrapeJobPostsFromFindWorkList &&
             !scrapeDetailsFromSavedList
         );
         const MAX_RECENT_ERRORS = 5;
@@ -141,9 +144,11 @@
                         ? 'Active job page'
                         : (scrapeJobPostsFromSavedList
                             ? `${progressState.itemTotal || 0} saved targets`
-                            : (scrapeDetailsFromSavedList
+                            : (scrapeJobPostsFromFindWorkList
+                                ? `${progressState.itemTotal || 0} saved find-work jobs`
+                                : (scrapeDetailsFromSavedList
                                 ? `${progressState.itemTotal || 0} saved proposals`
-                                : 'Single run'))
+                                : 'Single run')))
                 );
             const pageProgressText = progressState.itemTotal > 0
                 ? `${progressState.itemCurrent}/${progressState.itemTotal}`

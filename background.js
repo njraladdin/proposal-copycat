@@ -5,7 +5,8 @@ importScripts(
     'sites/upwork/background/upwork-scrape-runner.js',
     'sites/upwork/background/controller.js',
     'sites/tiktok/background/tiktok-controller.js',
-    'sites/github/background/github-controller.js'
+    'sites/github/background/github-controller.js',
+    'sites/zitouna/background/zitouna-controller.js'
 );
 
 async function configureSidePanelBehavior() {

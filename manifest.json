@@ -22,7 +22,8 @@
     "https://www.tiktok.com/*",
     "https://github.com/*",
     "https://www.github.com/*",
-    "https://api.github.com/*"
+    "https://api.github.com/*",
+    "https://tawassol.banquezitouna.com/*"
   ],
   "web_accessible_resources": [
     {
@@ -34,7 +35,9 @@
         "sites/tiktok/panel.html",
         "sites/tiktok/panel.js",
         "sites/github/panel.html",
-        "sites/github/panel.js"
+        "sites/github/panel.js",
+        "sites/zitouna/panel.html",
+        "sites/zitouna/panel.js"
       ],
       "matches": [
         "<all_urls>"
@@ -57,6 +60,15 @@
       "matches": [
         "https://www.tiktok.com/*"
       ]
+    },
+    {
+      "resources": [
+        "sites/zitouna/injected/network-monitor.js",
+        "sites/zitouna/injected/capture-bridge.js"
+      ],
+      "matches": [
+        "https://tawassol.banquezitouna.com/*"
+      ]
     }
   ],
   "content_scripts": [
@@ -76,6 +88,25 @@
       ],
       "js": [
         "sites/upwork/injected/find-work-capture-bridge.js"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://tawassol.banquezitouna.com/*"
+      ],
+      "js": [
+        "sites/zitouna/injected/network-monitor.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://tawassol.banquezitouna.com/*"
+      ],
+      "js": [
+        "sites/zitouna/injected/capture-bridge.js"
       ],
       "run_at": "document_start"
     }

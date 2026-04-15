@@ -151,7 +151,33 @@
 
   <div class="data-preview" style="margin-top: 12px;">
     <div class="data-preview-header">
-      <div class="data-preview-title">Step 3: Saved Proposal Job Posts (<span id="jobPostCount">0</span>)</div>
+      <div class="data-preview-title">Find Work Job Posts (<span id="findWorkJobPostsCount">0</span>)</div>
+    </div>
+    <p class="subtle-note">Detailed job-post payloads fetched from saved Find Work list items that are still missing details.</p>
+    <div class="controls" style="margin-top: 12px; margin-bottom: 12px;">
+      <div class="control-left">
+        <button id="startFindWorkJobPostsScraping">Capture Job Posts From Find Work List</button>
+        <button id="clearFindWorkJobPosts" class="clear-btn">Clear Find Work Job Posts</button>
+      </div>
+      <div class="control-right">
+        <span>Input</span>
+        <span>Saved Find Work list</span>
+      </div>
+    </div>
+    <div class="raw-json-toolbar">
+      <span>Exact stored payload</span>
+      <div class="toolbar-actions">
+        <button id="loadFindWorkJobPostsJson" class="copy-json-btn">Refresh JSON</button>
+        <button id="downloadFindWorkJobPostsJson" class="copy-json-btn">Download JSON</button>
+        <button id="copyFindWorkJobPostsJson" class="copy-json-btn">Copy JSON</button>
+      </div>
+    </div>
+    <textarea id="findWorkJobPostsJsonOutput" class="raw-json" readonly></textarea>
+  </div>
+
+  <div class="data-preview" style="margin-top: 12px;">
+    <div class="data-preview-header">
+      <div class="data-preview-title">Saved Proposal Job Posts (<span id="jobPostCount">0</span>)</div>
     </div>
     <p class="subtle-note">Batch job-post payloads captured from saved proposal details.</p>
     <div class="raw-json-toolbar">

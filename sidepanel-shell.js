@@ -6,7 +6,8 @@
 const SITE_REGISTRY = [
     { id: 'upwork', label: 'Upwork' },
     { id: 'tiktok', label: 'TikTok' },
-    { id: 'github', label: 'GitHub' }
+    { id: 'github', label: 'GitHub' },
+    { id: 'zitouna', label: 'Zitouna' }
 ];
 
 const ACTIVE_SITE_STORAGE_KEY = 'activeSiteTab';
@@ -72,6 +73,8 @@ async function activateSite(siteId) {
                 window.mountTiktokPanel();
             } else if (normalizedId === 'github' && typeof window.mountGithubPanel === 'function') {
                 window.mountGithubPanel();
+            } else if (normalizedId === 'zitouna' && typeof window.mountZitounaPanel === 'function') {
+                window.mountZitounaPanel();
             }
         } catch (error) {
             console.error(`Failed to load panel for site "${normalizedId}":`, error);

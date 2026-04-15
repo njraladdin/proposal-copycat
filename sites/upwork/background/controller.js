@@ -2517,6 +2517,13 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
         return;
     }
 
+    if (request.action === 'startFindWorkJobPostsScraping') {
+        startFindWorkJobPostsScrapingFlow().catch((error) => {
+            console.error('Failed to start Find Work job-post scraping:', error);
+        });
+        return;
+    }
+
     if (request.action === 'repairSavedJobPostUrls') {
         repairSavedJobPostUrls()
             .then((summary) => {
@@ -2953,6 +2960,30 @@ async function startJobPostsFromSavedListScrapingFlow(scrapeMode = DEFAULT_SCRAP
         target: { tabId: targetTabId },
         function: runUpworkScrape,
         args: [{ scrapeMode, scrapeJobPostsFromSavedList: true }]
+    });
+}
+
+async function startFindWorkJobPostsScrapingFlow() {
+    await stopFindWorkTrackingSession({ updateRunStatus: false });
+
+    const [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+    let targetTabId;
+    let expectedReadyUrl = FIND_WORK_URL;
+    if (currentTab?.id && String(currentTab.url || '').startsWith(UPWORK_ROOT_URL)) {
+        targetTabId = currentTab.id;
+        expectedReadyUrl = UPWORK_ROOT_URL;
+    } else {
+        const newTab = await chrome.tabs.create({ url: FIND_WORK_URL });
+        targetTabId = newTab.id;
+    }
+
+    await waitForTabReady(targetTabId, expectedReadyUrl);
+    await ensureInjectedScraperHelpers(targetTabId);
+    await chrome.scripting.executeScript({
+        target: { tabId: targetTabId },
+        function: runUpworkScrape,
+        args: [{ scrapeJobPostsFromFindWorkList: true }]
     });
 }
 

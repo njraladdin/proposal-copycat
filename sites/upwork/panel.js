@@ -42,6 +42,13 @@ window.mountUpworkPanel = function() {
             loadButtonId: 'loadFindWorkJobListJson',
             autoLoad: true
         },
+        findWorkJobPosts: {
+            storageKey: 'findWorkJobPosts',
+            countId: 'findWorkJobPostsCount',
+            textareaId: 'findWorkJobPostsJsonOutput',
+            loadButtonId: 'loadFindWorkJobPostsJson',
+            autoLoad: true
+        },
         jobPosts: {
             storageKey: 'jobPosts',
             countId: 'jobPostCount',
@@ -55,6 +62,7 @@ window.mountUpworkPanel = function() {
         proposals: { loaded: false, dirty: false },
         activeJobPost: { loaded: false, dirty: false },
         findWorkJobList: { loaded: false, dirty: false },
+        findWorkJobPosts: { loaded: false, dirty: false },
         jobPosts: { loaded: false, dirty: false }
     };
 
@@ -80,11 +88,35 @@ window.mountUpworkPanel = function() {
         const startJobScrapingBtn = document.getElementById('startJobScraping');
         const startJobFromListScrapingBtn = document.getElementById('startJobFromListScraping');
         const startFindWorkTrackingBtn = document.getElementById('startFindWorkTracking');
+        const startFindWorkJobPostsScrapingBtn = document.getElementById('startFindWorkJobPostsScraping');
         const repairSavedJobUrlsBtn = document.getElementById('repairSavedJobUrls');
         const isFindWorkTrackingActive = latestFindWorkTrackingSession?.active === true;
+        const isFindWorkJobPostsRunActive = (
+            latestUpworkRunStatus?.inProgress === true &&
+            latestUpworkRunStatus?.runKind === 'find-work-job-posts'
+        );
+        const isFindWorkJobPostsStopping = (
+            isFindWorkJobPostsRunActive &&
+            (latestUpworkRunControl?.stopRequested === true || latestUpworkRunStatus?.stopRequested === true)
+        );
+        const isFindWorkJobPostsPaused = (
+            isFindWorkJobPostsRunActive &&
+            (latestUpworkRunControl?.paused === true || latestUpworkRunStatus?.isPaused === true)
+        );
         if (startScrapingBtn) startScrapingBtn.disabled = !isAuthValid;
         if (startListScrapingBtn) startListScrapingBtn.disabled = !isAuthValid;
         if (startJobFromListScrapingBtn) startJobFromListScrapingBtn.disabled = !isAuthValid;
+        if (startFindWorkJobPostsScrapingBtn) {
+            startFindWorkJobPostsScrapingBtn.disabled = !isAuthValid || isFindWorkJobPostsRunActive;
+            startFindWorkJobPostsScrapingBtn.textContent = isFindWorkJobPostsStopping
+                ? 'Stopping Find Work Job Posts...'
+                : (isFindWorkJobPostsPaused
+                    ? 'Find Work Job Posts Paused'
+                    : (isFindWorkJobPostsRunActive
+                        ? 'Capturing Find Work Job Posts...'
+                        : 'Capture Job Posts From Find Work List'));
+            startFindWorkJobPostsScrapingBtn.classList.toggle('danger-btn', isFindWorkJobPostsRunActive);
+        }
         if (startJobScrapingBtn) startJobScrapingBtn.disabled = !isAuthValid || !isOnJobPostPage;
         if (startFindWorkTrackingBtn) {
             startFindWorkTrackingBtn.disabled = !isAuthValid || (!isOnFindWorkPage && !isFindWorkTrackingActive);
@@ -278,11 +310,19 @@ window.mountUpworkPanel = function() {
     }
 
     async function refreshCountsOnly() {
-        const data = await chrome.storage.local.get(['proposalList', 'proposals', 'activeJobPost', 'findWorkJobList', 'jobPosts']);
+        const data = await chrome.storage.local.get([
+            'proposalList',
+            'proposals',
+            'activeJobPost',
+            'findWorkJobList',
+            'findWorkJobPosts',
+            'jobPosts'
+        ]);
         setDatasetCount('proposalList', data.proposalList);
         setDatasetCount('proposals', data.proposals);
         setDatasetCount('activeJobPost', data.activeJobPost);
         setDatasetCount('findWorkJobList', data.findWorkJobList);
+        setDatasetCount('findWorkJobPosts', data.findWorkJobPosts);
         setDatasetCount('jobPosts', data.jobPosts);
     }
 
@@ -599,6 +639,12 @@ window.mountUpworkPanel = function() {
         }
     });
 
+    addClickListener('startFindWorkJobPostsScraping', async () => {
+        const canProceed = await checkUpworkAuth();
+        if (!canProceed) return;
+        chrome.runtime.sendMessage({ action: 'startFindWorkJobPostsScraping' });
+    });
+
     addClickListener('repairSavedJobUrls', async () => {
         const button = document.getElementById('repairSavedJobUrls');
         const originalText = button.textContent;
@@ -614,7 +660,7 @@ window.mountUpworkPanel = function() {
             const summary = result.summary || {};
             await refreshCountsOnly();
 
-            for (const datasetKey of ['proposalList', 'proposals', 'activeJobPost', 'findWorkJobList', 'jobPosts']) {
+            for (const datasetKey of ['proposalList', 'proposals', 'activeJobPost', 'findWorkJobList', 'findWorkJobPosts', 'jobPosts']) {
                 if (!datasetState[datasetKey]) continue;
                 if (isAutoLoadDataset(datasetKey)) {
                     await loadDatasetJson(datasetKey, { force: true });
@@ -677,6 +723,12 @@ window.mountUpworkPanel = function() {
         renderDatasetJson('findWorkJobList', []);
     });
 
+    addClickListener('clearFindWorkJobPosts', async () => {
+        if (!confirm('Are you sure you want to clear saved Find Work job post data?')) return;
+        await chrome.storage.local.remove(['findWorkJobPosts']);
+        renderDatasetJson('findWorkJobPosts', []);
+    });
+
     addClickListener('copyRawJson', async () => {
         await ensureDatasetLoaded('proposals');
         await copyFromTextarea('copyRawJson', 'rawJsonOutput');
@@ -702,6 +754,11 @@ window.mountUpworkPanel = function() {
         await copyFromTextarea('copyFindWorkJobListJson', 'findWorkJobListJsonOutput');
     });
 
+    addClickListener('copyFindWorkJobPostsJson', async () => {
+        await ensureDatasetLoaded('findWorkJobPosts');
+        await copyFromTextarea('copyFindWorkJobPostsJson', 'findWorkJobPostsJsonOutput');
+    });
+
     addClickListener('loadRawJson', async () => {
         await loadDatasetJson('proposals', { force: true });
     });
@@ -722,6 +779,10 @@ window.mountUpworkPanel = function() {
         await loadDatasetJson('findWorkJobList', { force: true });
     });
 
+    addClickListener('loadFindWorkJobPostsJson', async () => {
+        await loadDatasetJson('findWorkJobPosts', { force: true });
+    });
+
     addClickListener('downloadProposalListJson', async () => {
         await downloadJson('downloadProposalListJson', 'proposalList', 'proposal-list');
     });
@@ -740,6 +801,10 @@ window.mountUpworkPanel = function() {
 
     addClickListener('downloadFindWorkJobListJson', async () => {
         await downloadJson('downloadFindWorkJobListJson', 'findWorkJobList', 'find-work-job-list');
+    });
+
+    addClickListener('downloadFindWorkJobPostsJson', async () => {
+        await downloadJson('downloadFindWorkJobPostsJson', 'findWorkJobPosts', 'find-work-job-posts');
     });
 
     // --- Storage change listener ---
@@ -779,6 +844,16 @@ window.mountUpworkPanel = function() {
                 }
             }
         }
+        if (changes.findWorkJobPosts) {
+            if (isAutoLoadDataset('findWorkJobPosts')) {
+                renderDatasetJson('findWorkJobPosts', changes.findWorkJobPosts.newValue);
+            } else {
+                setDatasetCount('findWorkJobPosts', changes.findWorkJobPosts.newValue);
+                if (datasetState.findWorkJobPosts.loaded) {
+                    markDatasetDirty('findWorkJobPosts');
+                }
+            }
+        }
         if (changes.jobPosts) {
             if (isAutoLoadDataset('jobPosts')) {
                 renderDatasetJson('jobPosts', changes.jobPosts.newValue);
@@ -812,6 +887,7 @@ window.mountUpworkPanel = function() {
             'upworkFindWorkTrackingSession',
             'activeJobPost',
             'findWorkJobList',
+            'findWorkJobPosts',
             'jobPosts'
         ]);
 
@@ -819,6 +895,7 @@ window.mountUpworkPanel = function() {
         setDatasetPlaceholder('proposals', 'JSON not loaded yet. Click "Load JSON".');
         renderDatasetJson('activeJobPost', data.activeJobPost);
         renderDatasetJson('findWorkJobList', data.findWorkJobList);
+        renderDatasetJson('findWorkJobPosts', data.findWorkJobPosts);
         renderDatasetJson('jobPosts', data.jobPosts);
         latestFindWorkTrackingSession = data.upworkFindWorkTrackingSession || null;
         renderLiveRunStatus(data[UPWORK_RUN_STATUS_STORAGE_KEY], data[UPWORK_RUN_CONTROL_STORAGE_KEY]);
